@@ -1,0 +1,15 @@
+{{-- Nội dung chữ của báo cáo: mỗi dòng 1 đoạn; dòng "-" thụt treo, dòng "+" lùi thêm 1 cấp, dòng "a)", "1." in đậm làm tiêu đề nhỏ --}}
+@php $dsDong = \App\Models\BaoCaoTuanDuAn::tachDong($chu ?? null); @endphp
+@forelse ($dsDong as $dong)
+  @php
+    $lopDong = match (true) {
+      (bool) preg_match('/^\+/u', $dong) => 'cap2',
+      (bool) preg_match('/^[-–•]/u', $dong) => 'gach',
+      (bool) preg_match('/^([a-zđ]|\d{1,2})[\)\.]\s/iu', $dong) => 'muc',
+      default => '',
+    };
+  @endphp
+  <p class="{{ $lopDong }}">{{ $dong }}</p>
+@empty
+  <p class="bc-trong">{{ $trong ?? 'Chưa cập nhật.' }}</p>
+@endforelse

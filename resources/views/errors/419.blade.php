@@ -1,0 +1,1 @@
+@include('errors._khung', ['ma' => '419', 'tieuDe' => 'Phiên làm việc đã hết hạn', 'loi' => 'Trang được mở quá lâu nên phiên làm việc đã hết hạn. Tải lại trang rồi thực hiện lại thao tác.', 'chiMacDinh' => true])

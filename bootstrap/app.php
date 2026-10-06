@@ -1,0 +1,28 @@
+<?php
+
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+
+return Application::configure(basePath: dirname(__DIR__))
+    ->withRouting(
+        web: __DIR__.'/../routes/web.php',
+        commands: __DIR__.'/../routes/console.php',
+        health: '/up',
+    )
+    ->withMiddleware(function (Middleware $middleware) {
+        // Dùng trong routes/web.php dạng phan_quyen:quan_tri,nhap_lieu
+        $middleware->alias([
+            'phan_quyen' => \App\Http\Middleware\PhanQuyen::class,
+            // Quyền xem từng mục cấp riêng cho từng tài khoản: duoc_xem:ban_do
+            'duoc_xem' => \App\Http\Middleware\DuocXem::class,
+        ]);
+
+        // Nhật ký hoạt động (trang Nhật ký, chỉ quản trị xem): ghi sau khi đã trả trang
+        $middleware->web(append: [\App\Http\Middleware\GhiNhatKy::class]);
+
+        $middleware->redirectGuestsTo('/dang-nhap');
+    })
+    ->withExceptions(function (Exceptions $exceptions) {
+        //
+    })->create();

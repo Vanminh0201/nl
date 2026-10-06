@@ -1,0 +1,1 @@
+@include('errors._khung', ['ma' => '404', 'tieuDe' => 'Không tìm thấy trang', 'loi' => 'Đường dẫn không đúng, nội dung đã bị xoá hoặc tài khoản không có quyền xem nội dung này.', 'chiMacDinh' => true])

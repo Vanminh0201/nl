@@ -1,0 +1,215 @@
+@extends('layouts.app')
+@section('tieu_de', 'Lập báo cáo '.$ky->ten())
+
+@php
+  // Sau khi lỗi kiểm tra, ô đánh dấu không được gửi lên (bỏ chọn) phải hiện đúng là bỏ chọn,
+  // không quay về giá trị mặc định — chỉ phân biệt được khi biết có dữ liệu cũ trong phiên hay không.
+  $coDuLieuCu = session()->hasOldInput();
+  $goiY = [
+    'thu_tuc_da_xong' => "VD:\n- Đã được phê duyệt điều chỉnh thiết kế cơ sở tại Quyết định số …/QĐ-… ngày …\n- Công tác lựa chọn nhà thầu: đã hoàn thành …/… gói thầu.",
+    'cong_viec_dang_lam' => "VD:\n- Công tác bồi thường, GPMB: diện tích còn lại chưa bàn giao khoảng … ha, gồm …\n- Công tác thi công xây dựng: khối lượng tổng thể đạt …%; hạng mục … đã hoàn thành …",
+    'kho_khan' => "VD:\n- Còn … hộ dân chưa thống nhất phương án bồi thường…\n- Kiến nghị UBND xã … phối hợp …",
+    'ke_hoach' => "VD:\n- Dự kiến phê duyệt thiết kế kỹ thuật: …\n- Phát điện thương mại tổ máy số 1: tháng …/…",
+  ];
+  $choPhepNhap = ! $baoCao || in_array($baoCao->trang_thai, ['nhap', 'yeu_cau_bo_sung'], true);
+@endphp
+
+@section('noi_dung')
+<form method="post" action="{{ route('bao-cao.luu') }}" id="formBaoCao" class="bc-soan">
+  @csrf
+  <input type="hidden" name="ky" value="{{ $ky->ma() }}">
+
+  <div class="pad bc-trang">
+    <div class="bc-dau-trang">
+      <div>
+        <h1>Báo cáo {{ $ky->ten() }}</h1>
+        <div class="hint" style="margin-top:2px">
+          Từ ngày {{ $ky->tuNgay->format('d/m/Y') }} đến ngày {{ $ky->denNgay->format('d/m/Y') }}
+          @if ($baoCao) · <span class="chip {{ $baoCao->lop_chip }}">{{ $baoCao->ten_trang_thai }}</span>@endif
+        </div>
+      </div>
+      <a href="{{ route('bao-cao.index') }}" class="btn">Về danh sách báo cáo</a>
+    </div>
+
+    @if ($baoCao?->trang_thai === 'yeu_cau_bo_sung')
+      <div class="bc-canh-bao">
+        <div><b>Sở yêu cầu bổ sung</b> <span class="hint" style="margin:0">({{ $baoCao->gio('xu_ly_luc') }})</span>
+          <div style="white-space:pre-line;margin-top:3px">{{ $baoCao->y_kien_xu_ly }}</div></div>
+      </div>
+    @elseif ($baoCao?->trang_thai === 'da_nop')
+      <div class="flash" style="margin:0">Báo cáo này đã nộp lúc {{ $baoCao->gio('nop_luc') }} và đang chờ Sở tiếp nhận — sửa xong bấm "Cập nhật báo cáo đã nộp".</div>
+    @elseif ($truoc)
+      <div class="flash" style="margin:0">Nội dung đã được chép sẵn từ báo cáo {{ $truoc->ky()->ten() }} — cập nhật lại các mục có thay đổi trong tuần này.</div>
+    @endif
+
+    @if ($errors->any())
+      <div class="loi" style="margin:0">
+        Báo cáo chưa được lưu, cần sửa:
+        <ul>@foreach ($errors->all() as $loi)<li>{{ $loi }}</li>@endforeach</ul>
+      </div>
+    @endif
+
+    <div class="sheet">
+      <div class="sheet-hd"><h2>Thông tin văn bản</h2></div>
+      <div class="sheet-bd bc-luoi-3">
+        <label class="f">Cơ quan chủ quản (nếu có)
+          <input name="co_quan_chu_quan" maxlength="255" value="{{ old('co_quan_chu_quan', $vanBan['co_quan_chu_quan']) }}" placeholder="VD: Tập đoàn Điện lực Việt Nam">
+        </label>
+        <label class="f">Tên đơn vị báo cáo *
+          <input name="ten_don_vi" maxlength="255" value="{{ old('ten_don_vi', $vanBan['ten_don_vi']) }}">
+          @error('ten_don_vi')<span class="sai">{{ $message }}</span>@enderror
+        </label>
+        <label class="f">Số hiệu văn bản
+          <input name="so_hieu" maxlength="100" value="{{ old('so_hieu', $vanBan['so_hieu']) }}" placeholder="VD: 125/BC-ABC (để trống nếu chưa lấy số)">
+        </label>
+        <label class="f">Địa danh
+          <input name="dia_danh" maxlength="100" value="{{ old('dia_danh', $vanBan['dia_danh']) }}">
+        </label>
+        <label class="f">Ngày báo cáo
+          <input type="date" name="ngay_bao_cao" value="{{ old('ngay_bao_cao', $vanBan['ngay_bao_cao']) }}">
+        </label>
+        <label class="f">Người ký *
+          <input name="nguoi_ky" maxlength="255" value="{{ old('nguoi_ky', $vanBan['nguoi_ky']) }}" placeholder="Họ và tên người ký">
+          @error('nguoi_ky')<span class="sai">{{ $message }}</span>@enderror
+        </label>
+        <label class="f">Chức vụ người ký (mỗi dòng 1 dòng trên văn bản)
+          <textarea name="chuc_vu_ky" rows="2" maxlength="255" placeholder="VD:&#10;KT. GIÁM ĐỐC&#10;PHÓ GIÁM ĐỐC">{{ old('chuc_vu_ky', $vanBan['chuc_vu_ky']) }}</textarea>
+        </label>
+        <label class="f">Kính gửi * (mỗi dòng 1 nơi)
+          <textarea name="kinh_gui" rows="2" maxlength="1000">{{ old('kinh_gui', $vanBan['kinh_gui']) }}</textarea>
+          @error('kinh_gui')<span class="sai">{{ $message }}</span>@enderror
+        </label>
+        <label class="f">Nơi nhận
+          <textarea name="noi_nhan" rows="2" maxlength="1000">{{ old('noi_nhan', $vanBan['noi_nhan']) }}</textarea>
+        </label>
+        <label class="f full">Thông tin chung (không bắt buộc — đặt ngay sau câu mở đầu báo cáo)
+          <textarea name="gioi_thieu" rows="3" placeholder="VD: giới thiệu chung về các dự án của đơn vị: địa điểm, tổng mức đầu tư, quy mô công suất, nguồn vốn…">{{ old('gioi_thieu', $vanBan['gioi_thieu']) }}</textarea>
+        </label>
+      </div>
+    </div>
+
+    @error('du_an')<div class="loi" style="margin:0">{{ $message }}</div>@enderror
+
+    @foreach ($muc as $m)
+      @php
+        $d = $m['du_an'];
+        $gt = $m['gt'];
+        $ten = "du_an[{$d->id}]";
+        $khoa = "du_an.{$d->id}";
+        $co = $coDuLieuCu ? (bool) old("$khoa.co") : $m['co'];
+      @endphp
+      <div class="sheet bc-muc {{ $co ? '' : 'tat' }}" data-muc>
+        <div class="sheet-hd bc-muc-hd">
+          <label class="bc-chon"><input type="checkbox" name="{{ $ten }}[co]" value="1" @checked($co) data-chon-muc> Đưa vào báo cáo</label>
+          <div style="min-width:0">
+            <h2>{{ $d->ten }}</h2>
+            <div class="hint" style="margin:0">
+              {{ $d->ten_loai_hinh }}@if ($d->trang_thai) · {{ $d->trang_thai }}@endif @if ($d->dia_diem) · {{ $d->dia_diem }}@endif
+            </div>
+          </div>
+          <span class="bc-muc-tat-ghi hint">Không đưa dự án này vào báo cáo tuần này</span>
+        </div>
+        <div class="sheet-bd bc-muc-bd">
+          <div class="bc-muc-chu">
+            @foreach (\App\Models\BaoCaoTuanDuAn::TRUONG_CHU as $cot => $nhan)
+              <label class="f">{{ $loop->iteration }}. {{ $nhan }}{{ $cot === 'cong_viec_dang_lam' ? ' *' : '' }}
+                <textarea name="{{ $ten }}[{{ $cot }}]" rows="7" placeholder="{{ $goiY[$cot] }}">{{ old("$khoa.$cot", $gt[$cot]) }}</textarea>
+                @error("$khoa.$cot")<span class="sai">{{ $message }}</span>@enderror
+              </label>
+            @endforeach
+          </div>
+          <div class="bc-muc-so">
+            <label class="f">Tiến độ tổng thể dự án (%) *
+              <input type="number" name="{{ $ten }}[tien_do]" min="0" max="100" step="1" value="{{ old("$khoa.tien_do", $gt['tien_do']) }}">
+              @error("$khoa.tien_do")<span class="sai">{{ $message }}</span>@enderror
+            </label>
+            <div class="f">
+              <span>Hồ sơ pháp lý đã có</span>
+              <div class="bc-ho-so">
+                @foreach (\App\Models\DuAn::HO_SO_PHAP_LY as $cot => $nhan)
+                  <label><input type="checkbox" name="{{ $ten }}[{{ $cot }}]" value="1"
+                    @checked($coDuLieuCu ? (bool) old("$khoa.$cot") : $gt[$cot])> {{ $nhan }}</label>
+                @endforeach
+              </div>
+            </div>
+            <fieldset class="bc-giai-ngan" data-giai-ngan>
+              <legend>5. Công tác giải ngân (tỷ đồng)</legend>
+              @foreach ([
+                'tong_muc_dau_tu' => 'Tổng mức đầu tư',
+                'ke_hoach_von_nam' => 'Kế hoạch vốn năm '.$ky->namTaiChinh(),
+                'giai_ngan_nam' => 'Đã giải ngân năm '.$ky->namTaiChinh(),
+                'luy_ke_giai_ngan' => 'Lũy kế giải ngân từ khởi công',
+              ] as $cot => $nhan)
+                <label class="f">{{ $nhan }}
+                  <input type="number" name="{{ $ten }}[{{ $cot }}]" min="0" step="any" data-so="{{ $cot }}"
+                         value="{{ old("$khoa.$cot", $gt[$cot] !== null ? rtrim(rtrim(number_format((float) $gt[$cot], 3, '.', ''), '0'), '.') : '') }}">
+                  @error("$khoa.$cot")<span class="sai">{{ $message }}</span>@enderror
+                </label>
+              @endforeach
+              <p class="hint bc-ti-le" data-ti-le></p>
+            </fieldset>
+          </div>
+        </div>
+      </div>
+    @endforeach
+  </div>
+
+  <div class="bc-chan">
+    <span class="hint" style="margin:0 auto 0 0">Mục có dấu * bắt buộc khi nộp. Lưu nháp thì Sở chưa nhận được báo cáo.</span>
+    <a href="{{ route('bao-cao.index') }}" class="btn">Huỷ</a>
+    @if ($choPhepNhap)
+      <button name="hanh_dong" value="luu" class="btn">Lưu nháp</button>
+    @endif
+    <button name="hanh_dong" value="nop" class="btn primary" data-nop>
+      {{ $baoCao?->trang_thai === 'da_nop' ? 'Cập nhật báo cáo đã nộp' : 'Nộp báo cáo' }}
+    </button>
+  </div>
+</form>
+@endsection
+
+@push('cuoi_trang')
+<script>
+(function () {
+  var form = document.getElementById('formBaoCao');
+  var daSua = false;
+
+  form.addEventListener('input', function () { daSua = true; });
+  form.addEventListener('change', function () { daSua = true; });
+  form.addEventListener('submit', function (e) {
+    if (e.submitter && e.submitter.hasAttribute('data-nop')
+        && !confirm('Nộp báo cáo {{ $ky->ten() }} cho Sở Công Thương?')) {
+      e.preventDefault();
+      return;
+    }
+    daSua = false;
+  });
+  window.addEventListener('beforeunload', function (e) {
+    if (daSua) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-muc]'), function (muc) {
+    var chon = muc.querySelector('[data-chon-muc]');
+    chon.addEventListener('change', function () { muc.classList.toggle('tat', !chon.checked); });
+
+    var khung = muc.querySelector('[data-giai-ngan]');
+    var tiLe = khung.querySelector('[data-ti-le]');
+    function so(cot) {
+      var v = parseFloat(khung.querySelector('[data-so="' + cot + '"]').value);
+      return isNaN(v) ? null : v;
+    }
+    function phanTram(a, b) {
+      return (a / b * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + '%';
+    }
+    function tinh() {
+      var dong = [];
+      var gn = so('giai_ngan_nam'), kh = so('ke_hoach_von_nam'), lk = so('luy_ke_giai_ngan'), tm = so('tong_muc_dau_tu');
+      if (gn !== null && kh) dong.push('Giải ngân năm đạt ' + phanTram(gn, kh) + ' kế hoạch');
+      if (lk !== null && tm) dong.push('lũy kế đạt ' + phanTram(lk, tm) + ' tổng mức đầu tư');
+      tiLe.textContent = dong.length ? dong.join('; ') + '.' : '';
+    }
+    khung.addEventListener('input', tinh);
+    tinh();
+  });
+})();
+</script>
+@endpush

@@ -1,0 +1,136 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\LopHaTang;
+use App\Services\DocDuLieuKhongGian;
+use App\Services\PhanTichHaTang;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use RuntimeException;
+
+class LopHaTangController extends Controller
+{
+    public function index()
+    {
+        return view('lop-ha-tang.index', [
+            'lop' => LopHaTang::withCount([
+                'doiTuong',
+                'doiTuong as so_tram' => fn ($q) => $q->where('loai', 'tram'),
+            ])->latest()->get(),
+        ]);
+    }
+
+    public function store(Request $request, DocDuLieuKhongGian $doc, PhanTichHaTang $phanTich)
+    {
+        $request->validate([
+            'ten' => ['required', 'string', 'max:255'],
+            'nguon' => ['nullable', 'string', 'max:255'],
+            'tep' => ['required', 'file', 'max:102400'], // 100 MB
+        ], [], ['tep' => 'file dữ liệu', 'ten' => 'tên lớp']);
+
+        $tep = $request->file('tep');
+        $duoi = strtolower($tep->getClientOriginalExtension());
+
+        if (! in_array($duoi, ['geojson', 'json', 'kml', 'kmz'], true)) {
+            return back()->withInput()->withErrors(['tep' => 'Chỉ nhận file GeoJSON, KML hoặc KMZ.']);
+        }
+
+        try {
+            $features = $doc->doc($tep->getRealPath(), $tep->getClientOriginalName());
+        } catch (RuntimeException $e) {
+            return back()->withInput()->withErrors(['tep' => $e->getMessage()]);
+        }
+
+        if (! $features) {
+            return back()->withInput()->withErrors(['tep' => 'File không chứa đối tượng nào đọc được.']);
+        }
+
+        $lop = DB::transaction(function () use ($request, $tep, $features, $phanTich) {
+            $lop = LopHaTang::create([
+                'ten' => $request->string('ten')->toString(),
+                'nguon' => $request->string('nguon')->toString() ?: null,
+                'ten_file' => $tep->getClientOriginalName(),
+                'nguoi_tao_id' => $request->user()->id,
+            ]);
+
+            $phanTich->nhapLop($lop, $features);
+
+            return $lop;
+        });
+
+        $soTram = $lop->doiTuong()->where('loai', 'tram')->count();
+
+        return redirect()
+            ->route('lop-ha-tang.index')
+            ->with('thong_bao', "Đã nạp lớp {$lop->ten}: {$lop->so_doi_tuong} đối tượng, trong đó {$soTram} trạm biến áp.");
+    }
+
+    public function update(Request $request, LopHaTang $lopHaTang, DocDuLieuKhongGian $doc, PhanTichHaTang $phanTich)
+    {
+        // Bag riêng "suaLop": tránh lẫn với lỗi của form "Nạp lớp mới" bên cạnh — cả hai
+        // form đều dùng tên trường ten/nguon, dùng chung bag mặc định sẽ hiện lỗi sai chỗ.
+        $data = $request->validateWithBag('suaLop', [
+            'ten' => ['required', 'string', 'max:255'],
+            'nguon' => ['nullable', 'string', 'max:255'],
+            // Để trống nếu chỉ đổi tên/nguồn; có chọn file thì thay toàn bộ dữ liệu của lớp.
+            'tep' => ['nullable', 'file', 'max:102400'], // 100 MB
+        ], [], ['ten' => 'tên lớp', 'nguon' => 'nguồn dữ liệu', 'tep' => 'file dữ liệu']);
+
+        $capNhat = ['ten' => $data['ten'], 'nguon' => $data['nguon'] ?: null];
+
+        if (! $request->hasFile('tep')) {
+            $lopHaTang->update($capNhat);
+
+            return back()->with('thong_bao', "Đã cập nhật lớp {$lopHaTang->ten}.");
+        }
+
+        $tep = $request->file('tep');
+        $duoi = strtolower($tep->getClientOriginalExtension());
+
+        if (! in_array($duoi, ['geojson', 'json', 'kml', 'kmz'], true)) {
+            return back()->withErrors(['tep' => 'Chỉ nhận file GeoJSON, KML hoặc KMZ.'], 'suaLop');
+        }
+
+        try {
+            $features = $doc->doc($tep->getRealPath(), $tep->getClientOriginalName());
+        } catch (RuntimeException $e) {
+            return back()->withErrors(['tep' => $e->getMessage()], 'suaLop');
+        }
+
+        if (! $features) {
+            return back()->withErrors(['tep' => 'File không chứa đối tượng nào đọc được.'], 'suaLop');
+        }
+
+        $capNhat['ten_file'] = $tep->getClientOriginalName();
+
+        DB::transaction(function () use ($lopHaTang, $capNhat, $features, $phanTich) {
+            $lopHaTang->update($capNhat);
+            // Thay hẳn dữ liệu cũ bằng file mới, không cộng dồn — nhapLop() chỉ chèn thêm.
+            $lopHaTang->doiTuong()->delete();
+            $phanTich->nhapLop($lopHaTang, $features);
+        });
+
+        $soTram = $lopHaTang->doiTuong()->where('loai', 'tram')->count();
+
+        return back()->with('thong_bao', "Đã cập nhật lớp {$lopHaTang->ten} với dữ liệu mới: "
+            ."{$lopHaTang->so_doi_tuong} đối tượng, trong đó {$soTram} trạm biến áp.");
+    }
+
+    public function toggle(LopHaTang $lopHaTang)
+    {
+        $lopHaTang->update(['hien_thi' => ! $lopHaTang->hien_thi]);
+
+        return back()->with('thong_bao', $lopHaTang->hien_thi
+            ? "Đã bật lớp {$lopHaTang->ten}."
+            : "Đã tắt lớp {$lopHaTang->ten}.");
+    }
+
+    public function destroy(LopHaTang $lopHaTang)
+    {
+        $ten = $lopHaTang->ten;
+        $lopHaTang->delete(); // doi_tuong_ha_tang xoá theo ràng buộc cascade
+
+        return back()->with('thong_bao', "Đã gỡ lớp {$ten}.");
+    }
+}

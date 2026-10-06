@@ -1,0 +1,106 @@
+@extends('layouts.app')
+@section('tieu_de', 'Đối tượng của lớp '.$lopHaTang->ten)
+
+@section('noi_dung')
+<div class="pad">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="font-size:16px;margin:0">
+      Đối tượng của lớp <span style="color:var(--ink-2)">{{ $lopHaTang->ten }}</span>
+    </h2>
+    <a href="{{ route('lop-ha-tang.index') }}" class="btn">‹ Quay lại Lớp hạ tầng</a>
+  </div>
+
+  <form method="get" class="thanhloc">
+    <label class="grow">Từ khoá
+      <input type="search" name="tu_khoa" value="{{ request('tu_khoa') }}" placeholder="Tên đối tượng">
+    </label>
+    <label>Loại
+      <select name="loai">
+        <option value="">Tất cả</option>
+        @foreach (App\Models\DoiTuongHaTang::LOAI as $ma => $ten)
+          <option value="{{ $ma }}" @selected(request('loai') === $ma)>{{ $ten }}</option>
+        @endforeach
+      </select>
+    </label>
+    <button class="btn primary">Lọc</button>
+    <a href="{{ route('lop-ha-tang.doi-tuong', $lopHaTang) }}" class="btn">Bỏ lọc</a>
+  </form>
+
+  @if (auth()->user()->duocSua())
+    <dialog id="dlgSuaDoiTuong">
+      <form method="post" id="formSuaDoiTuong">
+        @csrf @method('put')
+        <div class="sheet-hd"><h2 style="font-size:14px">Sửa đối tượng</h2></div>
+        <div class="sheet-bd">
+          <div class="grid">
+            <label class="f full">Tên
+              <input name="ten" id="dtSuaTen" maxlength="255">
+            </label>
+            <label class="f">Loại
+              <select name="loai" id="dtSuaLoai" required>
+                @foreach (App\Models\DoiTuongHaTang::LOAI as $ma => $ten)
+                  <option value="{{ $ma }}">{{ $ten }}</option>
+                @endforeach
+              </select>
+            </label>
+            <label class="f">Điện áp (kV)
+              <input type="number" name="dien_ap" id="dtSuaDienAp" min="1" max="2000" placeholder="Không rõ">
+            </label>
+          </div>
+        </div>
+        <div class="sheet-ft">
+          <button type="button" class="btn" onclick="document.getElementById('dlgSuaDoiTuong').close()">Huỷ</button>
+          <button class="btn primary">Lưu</button>
+        </div>
+      </form>
+    </dialog>
+  @endif
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Tên</th><th>Loại</th><th class="num">Điện áp (kV)</th><th></th></tr>
+      </thead>
+      <tbody>
+      @forelse ($doiTuong as $d)
+        <tr>
+          <td>{{ $d->ten ?: '—' }}</td>
+          <td>{{ App\Models\DoiTuongHaTang::LOAI[$d->loai] ?? $d->loai }}</td>
+          <td class="num">{{ $d->dien_ap }}</td>
+          <td style="white-space:nowrap">
+            @if (auth()->user()->duocSua())
+              <button type="button" class="btn sm" data-sua-dt
+                      data-action="{{ route('doi-tuong-ha-tang.update', $d) }}"
+                      data-ten="{{ $d->ten }}" data-loai="{{ $d->loai }}" data-dien-ap="{{ $d->dien_ap }}">Sửa</button>
+            @endif
+          </td>
+        </tr>
+      @empty
+        <tr><td colspan="4" style="padding:26px;color:var(--ink-2)">Không có đối tượng nào khớp điều kiện lọc.</td></tr>
+      @endforelse
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:12px">{{ $doiTuong->links('vendor.pagination.don-gian', ['donVi' => 'đối tượng']) }}</div>
+</div>
+
+@if (auth()->user()->duocSua())
+  @push('cuoi_trang')
+  <script>
+  (function () {
+    var dlg = document.getElementById('dlgSuaDoiTuong');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-sua-dt]'), function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('formSuaDoiTuong').action = btn.dataset.action;
+        document.getElementById('dtSuaTen').value = btn.dataset.ten || '';
+        document.getElementById('dtSuaLoai').value = btn.dataset.loai;
+        document.getElementById('dtSuaDienAp').value = btn.dataset.dienAp || '';
+        dlg.showModal();
+      });
+    });
+  })();
+  </script>
+  @endpush
+@endif
+@endsection

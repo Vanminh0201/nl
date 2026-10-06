@@ -1,0 +1,189 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\DoiTuongHaTang;
+use App\Models\LopHaTang;
+use Illuminate\Support\Facades\DB;
+
+class PhanTichHaTang
+{
+    /**
+     * Chuyển danh sách feature thành bản ghi doi_tuong_ha_tang và ghi theo lô.
+     */
+    public function nhapLop(LopHaTang $lop, array $features): int
+    {
+        $lo = [];
+        $dem = 0;
+
+        foreach ($features as $f) {
+            $hinhHoc = $f['geometry'] ?? null;
+            if (! $hinhHoc || empty($hinhHoc['coordinates'])) {
+                continue;
+            }
+
+            $tt = $f['properties'] ?? [];
+            $hop = $this->hopBao($hinhHoc);
+            if (! $hop) {
+                continue;
+            }
+
+            $lo[] = [
+                'lop_id' => $lop->id,
+                'ten' => mb_substr((string) ($tt['name'] ?? $tt['Name'] ?? ''), 0, 255) ?: null,
+                'loai' => $this->loaiDoiTuong($tt, $hinhHoc),
+                'dien_ap' => $this->dienAp($tt),
+                'hinh_hoc' => json_encode($hinhHoc, JSON_UNESCAPED_UNICODE),
+                'thuoc_tinh' => json_encode($this->rutGonThuocTinh($tt), JSON_UNESCAPED_UNICODE),
+                'tam_vi_do' => $hop['tam_lat'],
+                'tam_kinh_do' => $hop['tam_lng'],
+                'min_vi_do' => $hop['min_lat'],
+                'max_vi_do' => $hop['max_lat'],
+                'min_kinh_do' => $hop['min_lng'],
+                'max_kinh_do' => $hop['max_lng'],
+            ];
+            $dem++;
+
+            if (count($lo) >= 500) {
+                DoiTuongHaTang::insert($lo);
+                $lo = [];
+            }
+        }
+
+        if ($lo) {
+            DoiTuongHaTang::insert($lo);
+        }
+
+        $lop->update(['so_doi_tuong' => $dem]);
+
+        return $dem;
+    }
+
+    /** Lấy đối tượng hạ tầng nằm trong khung nhìn của bản đồ */
+    public function trongKhungNhin(array $bbox, int $gioiHan = 4000): array
+    {
+        [$minLng, $minLat, $maxLng, $maxLat] = $bbox;
+
+        return DoiTuongHaTang::query()
+            ->join('lop_ha_tang', 'lop_ha_tang.id', '=', 'doi_tuong_ha_tang.lop_id')
+            ->where('lop_ha_tang.hien_thi', true)
+            ->where('doi_tuong_ha_tang.min_vi_do', '<=', $maxLat)
+            ->where('doi_tuong_ha_tang.max_vi_do', '>=', $minLat)
+            ->where('doi_tuong_ha_tang.min_kinh_do', '<=', $maxLng)
+            ->where('doi_tuong_ha_tang.max_kinh_do', '>=', $minLng)
+            // ưu tiên cấp điện áp cao khi phải cắt bớt
+            ->orderByDesc(DB::raw('COALESCE(doi_tuong_ha_tang.dien_ap, 0)'))
+            ->limit($gioiHan)
+            ->get([
+                'doi_tuong_ha_tang.ten', 'doi_tuong_ha_tang.loai', 'doi_tuong_ha_tang.dien_ap', 'doi_tuong_ha_tang.hinh_hoc',
+                'lop_ha_tang.mau as lop_mau', 'lop_ha_tang.bieu_tuong as lop_bieu_tuong', 'lop_ha_tang.kich_thuoc as lop_kich_thuoc',
+            ])
+            ->map(fn ($d) => [
+                'type' => 'Feature',
+                'properties' => [
+                    'ten' => $d->ten, 'loai' => $d->loai, 'kv' => $d->dien_ap,
+                    // Tuỳ chỉnh hiển thị đặt trên lớp (lop_ha_tang), áp cho mọi đối tượng thuộc lớp đó —
+                    // để trống thì phía JS tự tô theo cấp điện áp/kích thước mặc định như trước giờ.
+                    'mau' => $d->lop_mau, 'bieu_tuong' => $d->lop_bieu_tuong, 'kich_thuoc' => $d->lop_kich_thuoc,
+                ],
+                'geometry' => $d->hinh_hoc,
+            ])
+            ->all();
+    }
+
+    protected function loaiDoiTuong(array $tt, array $hinhHoc): string
+    {
+        $power = strtolower((string) ($tt['power'] ?? $tt['Power'] ?? ''));
+        $ten = (string) ($tt['name'] ?? $tt['Name'] ?? '');
+
+        if ($power === 'substation') {
+            return 'tram';
+        }
+        if (in_array($power, ['plant', 'generator'], true)) {
+            return 'nha_may';
+        }
+        if (in_array($power, ['line', 'minor_line', 'cable'], true)) {
+            return 'duong_day';
+        }
+        if ($power !== '') {
+            return 'khac';
+        }
+
+        if (preg_match('/trạm biến áp|\bTBA\b|substation/iu', $ten)) {
+            return 'tram';
+        }
+        if (preg_match('/nhà máy|thuỷ điện|thủy điện|nhiệt điện|power plant/iu', $ten)) {
+            return 'nha_may';
+        }
+        if (preg_match('/đường dây|\bĐZ\b|lộ \d/iu', $ten)) {
+            return 'duong_day';
+        }
+
+        return in_array($hinhHoc['type'], ['LineString', 'MultiLineString'], true) ? 'duong_day' : 'khac';
+    }
+
+    /** Thẻ voltage của OpenStreetMap ghi theo vôn, quy đổi về kV */
+    protected function dienAp(array $tt): ?int
+    {
+        $raw = $tt['voltage'] ?? $tt['Voltage'] ?? $tt['dien_ap'] ?? null;
+
+        if ($raw !== null && $raw !== '') {
+            $dau = preg_split('/[;,]/', (string) $raw)[0];
+            $v = (int) filter_var($dau, FILTER_SANITIZE_NUMBER_INT);
+            if ($v > 0) {
+                return $v > 1000 ? (int) round($v / 1000) : $v;
+            }
+        }
+
+        $chuoi = ($tt['name'] ?? '').' '.($tt['description'] ?? '');
+        if (preg_match('/(\d{2,4})\s*kv/i', $chuoi, $m)) {
+            return (int) $m[1];
+        }
+
+        return null;
+    }
+
+    /** Giữ lại vài thẻ hữu ích, bỏ phần description HTML dài của bản xuất OSM */
+    protected function rutGonThuocTinh(array $tt): array
+    {
+        $giu = ['name', 'operator', 'power', 'voltage', 'cables', 'circuits', 'start_date', 'ref'];
+
+        return array_filter(
+            array_intersect_key($tt, array_flip($giu)),
+            fn ($v) => $v !== '' && $v !== null
+        );
+    }
+
+    protected function hopBao(array $hinhHoc): ?array
+    {
+        $diem = [];
+        $duyet = function ($toa) use (&$duyet, &$diem) {
+            if (! is_array($toa)) {
+                return;
+            }
+            if (isset($toa[0]) && is_numeric($toa[0]) && isset($toa[1]) && is_numeric($toa[1])) {
+                $diem[] = [(float) $toa[0], (float) $toa[1]];
+
+                return;
+            }
+            foreach ($toa as $con) {
+                $duyet($con);
+            }
+        };
+        $duyet($hinhHoc['coordinates']);
+
+        if (! $diem) {
+            return null;
+        }
+
+        $lngs = array_column($diem, 0);
+        $lats = array_column($diem, 1);
+
+        return [
+            'min_lng' => min($lngs), 'max_lng' => max($lngs),
+            'min_lat' => min($lats), 'max_lat' => max($lats),
+            'tam_lng' => round(array_sum($lngs) / count($lngs), 7),
+            'tam_lat' => round(array_sum($lats) / count($lats), 7),
+        ];
+    }
+}

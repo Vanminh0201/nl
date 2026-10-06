@@ -1,0 +1,98 @@
+@extends('layouts.app')
+@section('tieu_de', 'Cài đặt báo cáo')
+
+@section('noi_dung')
+<div class="pad bc-trang">
+  @include('bao-cao._tab', ['dangChon' => 'bao-cao.cai-dat'])
+  @if ($errors->any())
+    <div class="loi" style="margin:0">{{ $errors->first() }}</div>
+  @endif
+
+  <form method="post" action="{{ route('bao-cao.cai-dat.luu') }}" class="sheet">
+    @csrf @method('put')
+    <div class="sheet-hd">
+      <h2>Chế độ báo cáo của chủ đầu tư</h2>
+      <div class="hint" style="margin-top:2px">
+        Chọn loại báo cáo từng chủ đầu tư phải thực hiện. Bỏ chọn thì tài khoản đó không bị nhắc và không tính là "chưa nộp" cho loại báo cáo ấy
+        (báo cáo đã lập trước đây vẫn xem được).
+      </div>
+    </div>
+    <div class="sheet-bd cd-han">
+      <div class="cd-luoi">
+        <label class="f">Báo cáo tuần bắt đầu áp dụng từ
+          <select name="tuan_bat_dau">
+            @foreach (array_reverse($dsTuan) as $k)
+              <option value="{{ $k->ma() }}" @selected($tuanBatDau && $k->bang($tuanBatDau))>{{ $k->ten() }} ({{ $k->khoang() }}){{ $k->laHienTai() ? ' — tuần này' : '' }}</option>
+            @endforeach
+          </select>
+        </label>
+        <label class="f">Báo cáo tháng bắt đầu áp dụng từ
+          <select name="thang_bat_dau">
+            @foreach (array_reverse($dsThang) as $k)
+              <option value="{{ $k->ma() }}" @selected($thangBatDau && $k->bang($thangBatDau))>{{ $k->ten() }}{{ $k->laHienTai() ? ' — tháng này' : '' }}</option>
+            @endforeach
+          </select>
+        </label>
+        <label class="f">Hạn gửi báo cáo tháng: ngày … hằng tháng
+          <input type="number" name="han_nop" min="1" max="28" step="1" required value="{{ old('han_nop', $hanNop) }}">
+        </label>
+      </div>
+      <p class="hint" style="margin:0">
+        Kỳ trước mốc áp dụng không tính là "chưa nộp". Báo cáo tuần cập nhật từ thứ Năm tuần trước đến thứ Năm tuần này;
+        báo cáo tháng theo mẫu bảng "Tình hình triển khai quy hoạch điện VIII…" (mỗi loại hình 1 sheet).
+      </p>
+    </div>
+    <div class="tablewrap" style="border:0;border-radius:0">
+      <table>
+        <thead>
+          <tr>
+            <th>Chủ đầu tư</th><th>Dự án được gán</th>
+            <th class="cd-o"><label><input type="checkbox" data-chon-het="tuan"> Báo cáo tuần</label></th>
+            <th class="cd-o"><label><input type="checkbox" data-chon-het="thang"> Báo cáo tháng</label></th>
+          </tr>
+        </thead>
+        <tbody>
+        @forelse ($dsChuDauTu as $u)
+          <tr>
+            <td>
+              <input type="hidden" name="ds[]" value="{{ $u->id }}">
+              <b>{{ $u->don_vi ?: $u->name }}</b>
+              <div class="hint" style="margin:0">{{ $u->don_vi ? $u->name.' · ' : '' }}{{ $u->email }}</div>
+              @unless ($u->da_duyet)<span class="chip cho">Chờ duyệt</span>@endunless
+            </td>
+            <td style="max-width:420px">{{ $u->duAn->pluck('ten')->join('; ') ?: '— chưa gán dự án' }}</td>
+            <td class="cd-o"><input type="checkbox" name="tuan[{{ $u->id }}]" value="1" data-loai="tuan" @checked($u->bc_tuan) aria-label="Báo cáo tuần — {{ $u->name }}"></td>
+            <td class="cd-o"><input type="checkbox" name="thang[{{ $u->id }}]" value="1" data-loai="thang" @checked($u->bc_thang) aria-label="Báo cáo tháng — {{ $u->name }}"></td>
+          </tr>
+        @empty
+          <tr><td colspan="4" class="trong">Chưa có tài khoản chủ đầu tư nào.</td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+    <div class="sheet-ft">
+      <button class="btn primary">Lưu cài đặt</button>
+    </div>
+  </form>
+</div>
+@endsection
+
+@push('cuoi_trang')
+<script>
+(function () {
+  // Ô ở đầu cột: chọn/bỏ chọn cả cột; tự đánh dấu khi cả cột đang được chọn
+  Array.prototype.forEach.call(document.querySelectorAll('[data-chon-het]'), function (tong) {
+    var loai = tong.dataset.chonHet;
+    var ds = Array.prototype.slice.call(document.querySelectorAll('[data-loai="' + loai + '"]'));
+    function capNhat() {
+      var chon = ds.filter(function (o) { return o.checked; }).length;
+      tong.checked = ds.length > 0 && chon === ds.length;
+      tong.indeterminate = chon > 0 && chon < ds.length;
+    }
+    tong.addEventListener('change', function () { ds.forEach(function (o) { o.checked = tong.checked; }); });
+    ds.forEach(function (o) { o.addEventListener('change', capNhat); });
+    capNhat();
+  });
+})();
+</script>
+@endpush

@@ -1,0 +1,26 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class DuAnVanBan extends Model
+{
+    protected $table = 'du_an_van_ban';
+
+    protected $guarded = ['id'];
+
+    protected $casts = [
+        'ngay_van_ban' => 'date',
+    ];
+
+    public function duAn()
+    {
+        return $this->belongsTo(DuAn::class);
+    }
+
+    public function getTepUrlAttribute(): ?string
+    {
+        return $this->tep ? asset($this->tep) : null;
+    }
+}

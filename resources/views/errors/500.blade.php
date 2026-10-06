@@ -1,0 +1,1 @@
+@include('errors._khung', ['ma' => '500', 'tieuDe' => 'Hệ thống gặp sự cố', 'loi' => 'Đã xảy ra lỗi khi xử lý yêu cầu. Thử lại sau ít phút; nếu vẫn lỗi, báo quản trị hệ thống kèm thời điểm xảy ra lỗi.', 'chiMacDinh' => true])

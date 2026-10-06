@@ -1,0 +1,147 @@
+<?php
+
+use App\Http\Controllers\BanDoController;
+use App\Http\Controllers\BaoCaoController;
+use App\Http\Controllers\BaoCaoThangController;
+use App\Http\Controllers\CaiDatBaoCaoController;
+use App\Http\Controllers\CaNhanController;
+use App\Http\Controllers\DangKyController;
+use App\Http\Controllers\DangNhapController;
+use App\Http\Controllers\DanhMucController;
+use App\Http\Controllers\DuAnController;
+use App\Http\Controllers\LopHaTangController;
+use App\Http\Controllers\TaiKhoanController;
+use App\Http\Controllers\ThongKeBaoCaoController;
+use App\Http\Controllers\ThongKeController;
+use App\Http\Controllers\XuatDuLieuController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+
+Route::middleware('guest')->group(function () {
+    Route::get('/dang-nhap', [DangNhapController::class, 'form'])->name('dang-nhap');
+    Route::post('/dang-nhap', [DangNhapController::class, 'dangNhap']);
+
+    // Chỉ chủ đầu tư tự đăng ký được — tài khoản tạo ra ở trạng thái chờ duyệt, quản trị viên
+    // duyệt ở trang Tài khoản thì mới đăng nhập được (xem TaiKhoanController::duyet).
+    Route::get('/dang-ky', [DangKyController::class, 'form'])->name('dang-ky');
+    Route::post('/dang-ky', [DangKyController::class, 'dangKy']);
+});
+
+Route::post('/dang-xuat', [DangNhapController::class, 'dangXuat'])
+    ->middleware('auth')
+    ->name('dang-xuat');
+
+Route::middleware('auth')->group(function () {
+    // Trang đầu tiên tài khoản được xem (theo phân quyền xem ở trang Tài khoản)
+    Route::get('/', function (Request $request) {
+        $url = $request->user()->trangDau();
+        abort_unless($url, 403, 'Tài khoản của bạn chưa được cấp quyền xem mục nào — liên hệ quản trị hệ thống.');
+
+        return redirect($url);
+    });
+
+    // Ai cũng tự sửa được thông tin tài khoản của chính mình (không cần quyền xem mục nào)
+    Route::get('/ca-nhan', [CaNhanController::class, 'form'])->name('ca-nhan');
+    Route::put('/ca-nhan', [CaNhanController::class, 'capNhat'])->name('ca-nhan.cap-nhat');
+    Route::put('/ca-nhan/mat-khau', [CaNhanController::class, 'doiMatKhau'])->name('ca-nhan.mat-khau');
+
+    // Quyền XEM từng mục do quản trị cấp riêng cho từng tài khoản (User::MUC_XEM, mặc định theo
+    // vai trò); quyền thêm/sửa/xoá bên dưới vẫn theo vai trò.
+    // Được xem Bản đồ là xem được toàn bộ thông tin trên bản đồ: tất cả dự án, lưới điện, tra cứu lưới điện
+    Route::middleware('duoc_xem:ban_do')->group(function () {
+        Route::get('/ban-do', [BanDoController::class, 'index'])->name('ban-do');
+        Route::get('/api/du-an', [BanDoController::class, 'duAn'])->name('api.du-an');
+        Route::get('/api/ha-tang', [BanDoController::class, 'haTang'])->name('api.ha-tang');
+        Route::get('/api/thong-ke-ha-tang', [BanDoController::class, 'thongKeHaTang'])->name('api.thong-ke-ha-tang');
+    });
+
+    Route::get('/thong-ke', [ThongKeController::class, 'index'])->middleware('duoc_xem:thong_ke')->name('thong-ke');
+    Route::middleware('duoc_xem:lop_ha_tang')->group(function () {
+        Route::get('/lop-ha-tang', [LopHaTangController::class, 'index'])->name('lop-ha-tang.index');
+        Route::get('/lop-ha-tang/{lopHaTang}/doi-tuong', [LopHaTangController::class, 'doiTuong'])->name('lop-ha-tang.doi-tuong');
+    });
+
+    Route::middleware('duoc_xem:danh_sach')->group(function () {
+        Route::get('/xuat/csv', [XuatDuLieuController::class, 'csv'])->name('xuat.csv');
+        Route::get('/xuat/excel', [XuatDuLieuController::class, 'excel'])->name('xuat.excel');
+        Route::get('/xuat/geojson', [XuatDuLieuController::class, 'geojson'])->name('xuat.geojson');
+        Route::get('/du-an', [DuAnController::class, 'index'])->name('du-an.index');
+    });
+    // Popup trên bản đồ cũng dẫn tới trang chi tiết — được xem Bản đồ hoặc Danh sách là mở được
+    Route::get('/du-an/{duAn}', [DuAnController::class, 'show'])->middleware('duoc_xem:danh_sach,ban_do')->name('du-an.show');
+
+    // Báo cáo tuần: chủ đầu tư lập/nộp cho dự án của mình, các vai trò còn lại xem toàn bộ (controller
+    // tự kiểm tra: chỉ chủ đầu tư được soạn, chủ đầu tư chỉ xem được báo cáo của chính mình).
+    Route::middleware('duoc_xem:bao_cao')->group(function () {
+        Route::get('/bao-cao', [BaoCaoController::class, 'index'])->name('bao-cao.index');
+        Route::get('/bao-cao/soan', [BaoCaoController::class, 'soan'])->name('bao-cao.soan');
+        Route::post('/bao-cao/soan', [BaoCaoController::class, 'luu'])->name('bao-cao.luu');
+        Route::get('/bao-cao/tong-hop/word', [BaoCaoController::class, 'tongHopWord'])
+            ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.tong-hop-word');
+        Route::get('/bao-cao/tong-hop/in', [BaoCaoController::class, 'tongHopIn'])
+            ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.tong-hop-in');
+        Route::get('/bao-cao/thong-ke', [ThongKeBaoCaoController::class, 'index'])
+            ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.thong-ke');
+        Route::get('/bao-cao/{baoCao}', [BaoCaoController::class, 'show'])->whereNumber('baoCao')->name('bao-cao.show');
+        Route::get('/bao-cao/{baoCao}/word', [BaoCaoController::class, 'word'])->whereNumber('baoCao')->name('bao-cao.word');
+        Route::patch('/bao-cao/{baoCao}/xu-ly', [BaoCaoController::class, 'xuLy'])->whereNumber('baoCao')
+            ->middleware('phan_quyen:quan_tri,nhap_lieu')->name('bao-cao.xu-ly');
+
+        // Báo cáo tháng theo mẫu bảng của Sở — cùng quy trình với báo cáo tuần
+        Route::get('/bao-cao/thang', [BaoCaoThangController::class, 'index'])->name('bao-cao.thang.index');
+        Route::get('/bao-cao/thang/soan', [BaoCaoThangController::class, 'soan'])->name('bao-cao.thang.soan');
+        Route::post('/bao-cao/thang/soan', [BaoCaoThangController::class, 'luu'])->name('bao-cao.thang.luu');
+        Route::get('/bao-cao/thang/tong-hop/excel', [BaoCaoThangController::class, 'tongHopExcel'])
+            ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.thang.tong-hop-excel');
+        Route::get('/bao-cao/thang/tong-hop/in', [BaoCaoThangController::class, 'tongHopIn'])
+            ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.thang.tong-hop-in');
+        Route::post('/bao-cao/thang/phan-nhom', [BaoCaoThangController::class, 'phanNhom'])
+            ->middleware('phan_quyen:quan_tri')->name('bao-cao.thang.phan-nhom');
+        Route::get('/bao-cao/thang/{baoCao}', [BaoCaoThangController::class, 'show'])->whereNumber('baoCao')->name('bao-cao.thang.show');
+        Route::get('/bao-cao/thang/{baoCao}/excel', [BaoCaoThangController::class, 'excel'])->whereNumber('baoCao')->name('bao-cao.thang.excel');
+        Route::patch('/bao-cao/thang/{baoCao}/xu-ly', [BaoCaoThangController::class, 'xuLy'])->whereNumber('baoCao')
+            ->middleware('phan_quyen:quan_tri,nhap_lieu')->name('bao-cao.thang.xu-ly');
+
+        // Cài đặt chế độ báo cáo (tuần/tháng) cho từng chủ đầu tư và hạn nộp báo cáo tháng
+        Route::get('/bao-cao/cai-dat', [CaiDatBaoCaoController::class, 'index'])->middleware('phan_quyen:quan_tri')->name('bao-cao.cai-dat');
+        Route::put('/bao-cao/cai-dat', [CaiDatBaoCaoController::class, 'luu'])->middleware('phan_quyen:quan_tri')->name('bao-cao.cai-dat.luu');
+    });
+
+    // Thêm, sửa, xoá: chỉ tài khoản nhập liệu và quản trị
+    Route::middleware('phan_quyen:quan_tri,nhap_lieu')->group(function () {
+        Route::get('/du-an-them/moi', [DuAnController::class, 'create'])->name('du-an.create');
+        Route::post('/du-an', [DuAnController::class, 'store'])->name('du-an.store');
+        Route::post('/du-an/vi-tri-tu-file', [DuAnController::class, 'viTriTuFile'])->name('du-an.vi-tri-tu-file');
+        Route::get('/du-an/{duAn}/sua', [DuAnController::class, 'edit'])->name('du-an.edit');
+        Route::put('/du-an/{duAn}', [DuAnController::class, 'update'])->name('du-an.update');
+
+        Route::post('/lop-ha-tang', [LopHaTangController::class, 'store'])->name('lop-ha-tang.store');
+        Route::put('/lop-ha-tang/{lopHaTang}', [LopHaTangController::class, 'update'])->name('lop-ha-tang.update');
+        Route::patch('/lop-ha-tang/{lopHaTang}', [LopHaTangController::class, 'toggle'])->name('lop-ha-tang.toggle');
+        Route::put('/doi-tuong-ha-tang/{doiTuong}', [LopHaTangController::class, 'suaDoiTuong'])->name('doi-tuong-ha-tang.update');
+    });
+
+    // Xoá, và quản lý danh mục loại hình/trạng thái: chỉ quản trị
+    Route::middleware('phan_quyen:quan_tri')->group(function () {
+        Route::delete('/du-an/{duAn}', [DuAnController::class, 'destroy'])->name('du-an.destroy');
+        Route::delete('/lop-ha-tang/{lopHaTang}', [LopHaTangController::class, 'destroy'])->name('lop-ha-tang.destroy');
+
+        Route::get('/danh-muc', [DanhMucController::class, 'index'])->name('danh-muc.index');
+        Route::post('/danh-muc/loai-hinh', [DanhMucController::class, 'themLoaiHinh'])->name('danh-muc.loai-hinh.store');
+        Route::put('/danh-muc/loai-hinh/{loaiHinh}', [DanhMucController::class, 'suaLoaiHinh'])->name('danh-muc.loai-hinh.update');
+        Route::delete('/danh-muc/loai-hinh/{loaiHinh}', [DanhMucController::class, 'xoaLoaiHinh'])->name('danh-muc.loai-hinh.destroy');
+        Route::post('/danh-muc/trang-thai', [DanhMucController::class, 'themTrangThai'])->name('danh-muc.trang-thai.store');
+        Route::put('/danh-muc/trang-thai/{trangThai}', [DanhMucController::class, 'suaTrangThai'])->name('danh-muc.trang-thai.update');
+        Route::delete('/danh-muc/trang-thai/{trangThai}', [DanhMucController::class, 'xoaTrangThai'])->name('danh-muc.trang-thai.destroy');
+        Route::post('/danh-muc/bieu-tuong', [DanhMucController::class, 'themBieuTuong'])->name('danh-muc.bieu-tuong.store');
+        Route::put('/danh-muc/bieu-tuong/{bieuTuong}', [DanhMucController::class, 'suaBieuTuong'])->name('danh-muc.bieu-tuong.update');
+        Route::delete('/danh-muc/bieu-tuong/{bieuTuong}', [DanhMucController::class, 'xoaBieuTuong'])->name('danh-muc.bieu-tuong.destroy');
+
+        Route::get('/tai-khoan', [TaiKhoanController::class, 'index'])->name('tai-khoan.index');
+        Route::post('/tai-khoan', [TaiKhoanController::class, 'store'])->name('tai-khoan.store');
+        Route::put('/tai-khoan/{taiKhoan}', [TaiKhoanController::class, 'update'])->name('tai-khoan.update');
+        Route::patch('/tai-khoan/{taiKhoan}/duyet', [TaiKhoanController::class, 'duyet'])->name('tai-khoan.duyet');
+        Route::put('/tai-khoan/{taiKhoan}/quyen-xem', [TaiKhoanController::class, 'quyenXem'])->name('tai-khoan.quyen-xem');
+        Route::delete('/tai-khoan/{taiKhoan}', [TaiKhoanController::class, 'destroy'])->name('tai-khoan.destroy');
+    });
+});

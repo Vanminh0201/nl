@@ -1,0 +1,67 @@
+<?php
+
+return [
+    /* Tâm và mức phóng mặc định của bản đồ */
+    'ban_do' => [
+        'vi_do' => env('DUAN_BAN_DO_LAT', 17.30),
+        'kinh_do' => env('DUAN_BAN_DO_LNG', 106.75),
+        'muc_phong' => env('DUAN_BAN_DO_ZOOM', 8),
+
+        // Khung toạ độ toàn tỉnh Quảng Trị (sau sáp nhập với Quảng Bình 07/2025), dùng để trang
+        // Bản đồ chính tự canh vừa khít cả tỉnh khi mở trang — không phụ thuộc kích thước màn hình
+        // như setView theo mức phóng cố định. [tây-nam, đông-bắc], gồm cả đảo Cồn Cỏ ở phía đông.
+        // Sát địa giới thực tế (không đệm rộng) vì màn hình ngang khiến hướng đông-tây tự nới ra
+        // nhiều hơn cần thiết so với hướng bắc-nam — đệm rộng sẽ làm bản đồ phóng nhỏ quá mức.
+        'gioi_han' => [[16.20, 105.55], [18.10, 107.45]],
+
+        // Lớp nền mặc định, dùng cho bản đồ nhỏ ở trang thêm/sửa và chi tiết dự án
+        // (không có bộ chọn lớp, chỉ trang Bản đồ chính mới có) — dùng ảnh vệ tinh để dễ đối
+        // chiếu thực địa (thấy rõ tua-bin/tấm pin/đập...) hơn là kiểu bản đồ đường phố.
+        'tile' => env('DUAN_BAN_DO_TILE', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
+        'ghi_nguon' => env('DUAN_BAN_DO_ATTR', 'Tiles © Esri — Nguồn: Esri, Maxar, Earthstar Geographics'),
+
+        // Các lớp nền cho bộ chọn ở trang Bản đồ chính.
+        // "Đường phố" từng thử đổi sang máy chủ tile chính thức của OSM (miễn phí, không cần khoá)
+        // vì cập nhật địa giới hành chính sau sáp nhập 07/2025 tốt hơn Esri — nhưng đã XÁC NHẬN THỰC
+        // TẾ domain này bị chặn/không kết nối được (ERR_CONNECTION_REFUSED, tái hiện nhiều lần, kể cả
+        // trên máy người dùng thật) nên đã QUAY LẠI Esri để đảm bảo bản đồ luôn hiển thị được — chấp
+        // nhận địa giới hành chính có thể chưa cập nhật, còn hơn bản đồ trắng không tải được gì cả.
+        // Muốn dùng lại OSM (hoặc MapTiler/CARTO có khoá API) thì cần kiểm tra lại độ ổn định trước.
+        // "Địa hình" (Esri World_Topo_Map) cũng chưa cập nhật địa giới hành chính VN sau sáp nhập —
+        // chấp nhận tạm, chưa có nguồn thay thế phù hợp (đã rà soát).
+        'lop_nen' => [
+            'pho' => [
+                'ten' => 'Đường phố',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri',
+            ],
+            've_tinh' => [
+                'ten' => 'Vệ tinh',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri — Nguồn: Esri, Maxar, Earthstar Geographics',
+            ],
+            'dia_hinh' => [
+                'ten' => 'Địa hình',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri',
+            ],
+        ],
+    ],
+
+    /* Báo cáo tuần của chủ đầu tư — giá trị điền sẵn khi lập báo cáo lần đầu */
+    'bao_cao' => [
+        'kinh_gui' => 'Sở Công Thương tỉnh Quảng Trị',
+        'dia_danh' => 'Quảng Trị',
+        'noi_nhan' => "- Như trên;\n- Lưu: VT.",
+        // Tên cơ quan ở đầu bảng tổng hợp tuần do quản trị tải về
+        'don_vi_tong_hop' => 'Sở Công Thương tỉnh Quảng Trị',
+        // Số tuần hiện ở bảng theo dõi nộp báo cáo và danh sách chọn tuần để lập báo cáo bù
+        'so_tuan_theo_doi' => 8,
+        // Tuần đầu tiên bắt buộc báo cáo (tuần ISO): các tuần trước đó không tính là "không nộp"
+        // và không hiện trong danh sách lập báo cáo bù — tránh cả loạt dấu ✕ ngay khi mới triển khai.
+        'tuan_bat_dau' => env('DUAN_BAO_CAO_TUAN_BAT_DAU', '2026-W40'),
+    ],
+
+    /* Số đối tượng hạ tầng tối đa trả về cho một khung nhìn */
+    'gioi_han_ha_tang' => env('DUAN_GIOI_HAN_HA_TANG', 4000),
+];

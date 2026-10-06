@@ -1,0 +1,144 @@
+@extends('layouts.app')
+@section('tieu_de', 'Lớp hạ tầng lưới điện')
+
+@section('noi_dung')
+<div class="pad">
+  <div class="sheet" style="max-width:1000px">
+    <div class="sheet-hd" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <h2>Lớp hạ tầng đã nạp</h2>
+      @if (auth()->user()->duocSua())
+        <button type="button" class="btn primary sm" onclick="document.getElementById('dlgThem').showModal()">+ Nạp lớp mới</button>
+      @endif
+    </div>
+    <div class="sheet-bd" style="padding:0">
+      @if ($errors->suaLop->any())
+        <div class="loi" style="margin:12px 12px 0">{{ $errors->suaLop->first() }}</div>
+      @endif
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Tên lớp</th><th>Nguồn</th><th class="num">Đối tượng</th><th class="num">Trạm</th><th>Trạng thái</th><th></th></tr>
+          </thead>
+          <tbody>
+          @forelse ($lop as $l)
+            <tr>
+              <td><b>{{ $l->ten }}</b><br><span class="hint">{{ $l->ten_file }}</span></td>
+              <td>{{ $l->nguon }}</td>
+              <td class="num">{{ number_format($l->doi_tuong_count, 0, ',', '.') }}</td>
+              <td class="num">{{ number_format($l->so_tram, 0, ',', '.') }}</td>
+              <td><span class="trang-thai {{ $l->hien_thi ? 'bat' : '' }}"><i></i>{{ $l->hien_thi ? 'Đang bật' : 'Đã tắt' }}</span></td>
+              <td style="white-space:nowrap">
+                @if (auth()->user()->duocSua())
+                  <button type="button" class="btn sm" data-sua
+                          data-action="{{ route('lop-ha-tang.update', $l) }}"
+                          data-ten="{{ $l->ten }}" data-nguon="{{ $l->nguon }}">Sửa</button>
+                  <form method="post" action="{{ route('lop-ha-tang.toggle', $l) }}" style="display:inline">
+                    @csrf @method('patch')
+                    <button class="btn sm">{{ $l->hien_thi ? 'Tắt' : 'Bật' }}</button>
+                  </form>
+                @endif
+                @if (auth()->user()->duocXoa())
+                  <form method="post" action="{{ route('lop-ha-tang.destroy', $l) }}" style="display:inline"
+                        onsubmit="return confirm('Gỡ lớp {{ $l->ten }} và toàn bộ đối tượng của lớp?')">
+                    @csrf @method('delete')
+                    <button class="btn sm danger">Gỡ</button>
+                  </form>
+                @endif
+              </td>
+            </tr>
+          @empty
+            <tr><td colspan="6" style="padding:26px;color:var(--ink-2)">
+              Chưa nạp lớp nào. Bấm "Nạp lớp mới" để bắt đầu.
+            </td></tr>
+          @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+@if (auth()->user()->duocSua())
+  <dialog id="dlgSua">
+    <form method="post" id="formSua" enctype="multipart/form-data">
+      @csrf @method('put')
+      <div class="sheet-hd"><h2 style="font-size:14px">Sửa lớp hạ tầng</h2></div>
+      <div class="sheet-bd">
+        <div class="grid">
+          <label class="f full">Tên lớp
+            <input name="ten" id="suaTen" required maxlength="255">
+          </label>
+          <label class="f full">Nguồn dữ liệu
+            <input name="nguon" id="suaNguon" maxlength="255">
+          </label>
+          <label class="f full">Thay file dữ liệu (để trống nếu chỉ đổi tên/nguồn)
+            <input type="file" name="tep" accept=".geojson,.json,.kml,.kmz">
+          </label>
+        </div>
+        <p class="hint">Chọn file để thay toàn bộ đối tượng của lớp này bằng dữ liệu mới, VD khi có bản cập nhật mới hơn.</p>
+      </div>
+      <div class="sheet-ft">
+        <button type="button" class="btn" onclick="document.getElementById('dlgSua').close()">Huỷ</button>
+        <button class="btn primary">Lưu</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgThem">
+    <form method="post" action="{{ route('lop-ha-tang.store') }}" enctype="multipart/form-data">
+      @csrf
+      <div class="sheet-hd"><h2 style="font-size:14px">Nạp lớp mới</h2></div>
+      <div class="sheet-bd">
+        @if ($errors->any())
+          <div class="loi">{{ $errors->first() }}</div>
+        @endif
+        <div class="grid">
+          <label class="f full">Tên lớp
+            <input name="ten" value="{{ old('ten') }}" placeholder="VD: Lưới điện Quảng Trị" required>
+          </label>
+          <label class="f full">Nguồn dữ liệu
+            <input name="nguon" value="{{ old('nguon') }}" placeholder="VD: OpenInfraMap, trích xuất 09/2026">
+          </label>
+          <label class="f full">File dữ liệu
+            <input type="file" name="tep" accept=".geojson,.json,.kml,.kmz" required>
+          </label>
+        </div>
+        <p class="hint">
+          Nhận GeoJSON, KML và KMZ, tối đa 100 MB. Trạm biến áp được nhận diện theo thẻ
+          <code>power=substation</code> của OpenStreetMap, hoặc theo tên có chứa “trạm biến áp”, “TBA”.
+          Cấp điện áp đọc từ thẻ <code>voltage</code> (đơn vị vôn, tự quy đổi sang kV), nếu không có thì bắt
+          từ tên.
+        </p>
+        <p class="hint">
+          Dữ liệu lưới điện OpenStreetMap đủ ở cấp 220–500 kV, thưa ở 110 kV và lưới trung áp. Dùng để định vị
+          và sàng lọc, không dùng làm số liệu trích dẫn trong văn bản.
+        </p>
+      </div>
+      <div class="sheet-ft">
+        <button type="button" class="btn" onclick="document.getElementById('dlgThem').close()">Huỷ</button>
+        <button class="btn primary">Nạp lớp</button>
+      </div>
+    </form>
+  </dialog>
+
+  @push('cuoi_trang')
+  <script>
+  (function () {
+    var dlgSua = document.getElementById('dlgSua');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-sua]'), function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('formSua').action = btn.dataset.action;
+        document.getElementById('suaTen').value = btn.dataset.ten;
+        document.getElementById('suaNguon').value = btn.dataset.nguon;
+        dlgSua.showModal();
+      });
+    });
+
+    @if ($errors->any())
+      document.getElementById('dlgThem').showModal();
+    @endif
+  })();
+  </script>
+  @endpush
+@endif
+@endsection

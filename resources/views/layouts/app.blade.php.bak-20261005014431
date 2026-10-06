@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>@yield('tieu_de', 'Quản lý dự án công nghiệp')</title>
+<link rel="stylesheet" href="{{ asset('css/app.css') }}?v={{ filemtime(public_path('css/app.css')) }}">
+@stack('dau_trang')
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="spacer"></span>
+    @php $nguoiDung = auth()->user(); @endphp
+    <nav id="navChinh">
+      {{-- Mỗi mục chỉ hiện khi tài khoản được cấp quyền xem (trang Tài khoản → Phân quyền) --}}
+      @if ($nguoiDung->duocXem('ban_do'))
+        <a href="{{ route('ban-do') }}" class="{{ request()->routeIs('ban-do') ? 'on' : '' }}">Bản đồ</a>
+      @endif
+      @if ($nguoiDung->duocXem('danh_sach'))
+        <a href="{{ route('du-an.index') }}" class="{{ request()->routeIs('du-an.*') ? 'on' : '' }}">Danh sách</a>
+      @endif
+      @if ($nguoiDung->duocXem('bao_cao'))
+      @php
+        // Quản trị: số báo cáo đang chờ tiếp nhận. Chủ đầu tư: số báo cáo bị yêu cầu bổ sung, cộng 1
+        // cho mỗi kỳ tuần/tháng hiện tại chưa gửi — nhắc việc ngay trên thanh menu ở mọi trang.
+        $demBaoCao = 0;
+        if ($nguoiDung->vai_tro === 'quan_tri') {
+          $demBaoCao = \App\Models\BaoCaoTuan::where('trang_thai', 'da_nop')->count()
+            + \App\Models\BaoCaoThang::where('trang_thai', 'da_nop')->count();
+        } elseif ($nguoiDung->vai_tro === 'chu_dau_tu' && $nguoiDung->duAn()->exists()) {
+          // Tuần/tháng hiện tại chỉ tính khi Sở đặt chế độ báo cáo đó cho tài khoản (Báo cáo → Cài đặt)
+          $demBaoCao = $nguoiDung->baoCaoTuan()->where('trang_thai', 'yeu_cau_bo_sung')->count()
+            + $nguoiDung->baoCaoThang()->where('trang_thai', 'yeu_cau_bo_sung')->count();
+          if ($nguoiDung->phaiBaoCaoTuan()) {
+            $kyNay = \App\Support\KyBaoCao::hienTai();
+            $demBaoCao += (! $kyNay->somHon(\App\Support\KyBaoCao::batDauBaoCao($nguoiDung->created_at))
+              && ! $nguoiDung->baoCaoTuan()->trongKy($kyNay)->daGui()->exists()) ? 1 : 0;
+          }
+          if ($nguoiDung->phaiBaoCaoThang()) {
+            $thangNay = \App\Support\KyThang::hienTai();
+            $demBaoCao += (! $thangNay->somHon(\App\Support\KyThang::batDauBaoCao($nguoiDung->created_at))
+              && ! $nguoiDung->baoCaoThang()->trongKy($thangNay)->daGui()->exists()) ? 1 : 0;
+          }
+          // Sản lượng điện tháng trước: còn dự án đang vận hành chưa gửi số liệu
+          if ($nguoiDung->phaiBaoCaoSanLuong()) {
+            $kySl = \App\Support\BaoCaoSanLuong::kyCanBao();
+            if (! $kySl->somHon(\App\Support\BaoCaoSanLuong::batDauBaoCao($nguoiDung->created_at))) {
+              $idVh = $nguoiDung->duAnVanHanh()->pluck('id');
+              $demBaoCao += \App\Models\SanLuongThang::whereIn('du_an_id', $idVh)->trongKy($kySl)->whereNotNull('gui_luc')->count() < $idVh->count() ? 1 : 0;
+            }
+          }
+        }
+      @endphp
+      <a href="{{ route('bao-cao.index') }}" class="{{ request()->routeIs('bao-cao.*') ? 'on' : '' }}"
+         @if ($demBaoCao) title="{{ $nguoiDung->vai_tro === 'quan_tri' ? 'Báo cáo chờ tiếp nhận' : 'Báo cáo cần nộp hoặc bổ sung' }}" @endif>Báo cáo @if ($demBaoCao)<span class="nav-dem">{{ $demBaoCao }}</span>@endif</a>
+      @endif
+      @if ($nguoiDung->duocXem('thong_ke'))
+        <a href="{{ route('thong-ke') }}" class="{{ request()->routeIs('thong-ke') ? 'on' : '' }}">Thống kê</a>
+      @endif
+      @if ($nguoiDung->duocXem('lop_ha_tang'))
+        <a href="{{ route('lop-ha-tang.index') }}" class="{{ request()->routeIs('lop-ha-tang.*') ? 'on' : '' }}">Lớp hạ tầng</a>
+      @endif
+      @if ($nguoiDung->vai_tro === 'quan_tri')
+        <a href="{{ route('danh-muc.index') }}" class="{{ request()->routeIs('danh-muc.*') ? 'on' : '' }}">Danh mục</a>
+        <a href="{{ route('tai-khoan.index') }}" class="{{ request()->routeIs('tai-khoan.*') ? 'on' : '' }}">Người dùng</a>
+        <a href="{{ route('nhat-ky.index') }}" class="{{ request()->routeIs('nhat-ky.*') ? 'on' : '' }}">Nhật ký</a>
+      @endif
+    </nav>
+    @php
+      $tenTrang = collect([
+        ['ban-do', 'Bản đồ'], ['du-an.*', 'Danh sách'], ['bao-cao.*', 'Báo cáo'], ['thong-ke', 'Thống kê'],
+        ['lop-ha-tang.*', 'Lớp hạ tầng'], ['danh-muc.*', 'Danh mục'], ['tai-khoan.*', 'Người dùng'], ['nhat-ky.*', 'Nhật ký'],
+        ['ca-nhan', 'Thông tin tài khoản'],
+      ])->first(fn ($m) => request()->routeIs($m[0]))[1] ?? 'Menu';
+    @endphp
+    {{-- Màn hình hẹp: menu thu vào nút này (hiện tên trang đang mở), bấm thì danh sách mục xổ xuống --}}
+    <button type="button" class="nav-mo" id="navMo" aria-expanded="false" aria-controls="navChinh" aria-label="Mở menu">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+      <span class="nav-mo-ten">{{ $tenTrang }}</span>
+      @if (! empty($demBaoCao))<span class="nav-dem">{{ $demBaoCao }}</span>@endif
+    </button>
+    @stack('thanh_menu')
+    <div class="muc-luc cai-dat">
+      <button type="button" class="muc-luc-nut" id="motCaiDat" aria-expanded="false">
+        <span class="mui">👤</span> Tài khoản
+      </button>
+      <div class="muc-luc-bang" id="caiDatBang" hidden>
+        <span class="me">{{ auth()->user()->name }} <small>({{ auth()->user()->ten_vai_tro }})</small></span>
+        <a href="{{ route('ca-nhan') }}" class="btn ghost sm" style="width:100%;text-align:center">Thông tin tài khoản</a>
+        <form method="post" action="{{ route('dang-xuat') }}">
+          @csrf
+          <button class="btn ghost sm" style="width:100%">Thoát</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  @if (session('thong_bao'))
+    <div class="flash">{{ session('thong_bao') }}</div>
+  @endif
+
+  <main>
+    @yield('noi_dung')
+  </main>
+</div>
+@stack('cuoi_trang')
+<script>
+(function () {
+  // Dùng chung cho mọi nhãn ẩn/hiện kiểu này trên thanh đầu trang (Mục lục, Cài đặt...) —
+  // mỗi khối ".muc-luc" tự có nút bấm + bảng riêng, không cần biết trước bao nhiêu khối.
+  var khoi = Array.prototype.slice.call(document.querySelectorAll('.muc-luc'));
+  khoi.forEach(function (k) {
+    var nut = k.querySelector('.muc-luc-nut');
+    var bang = k.querySelector('.muc-luc-bang');
+    if (!nut || !bang) return;
+    nut.addEventListener('click', function () {
+      var dangMo = !bang.hidden;
+      // Đóng các bảng khác đang mở trước khi mở bảng này, tránh chồng nhiều bảng cùng lúc.
+      khoi.forEach(function (k2) {
+        if (k2 !== k) {
+          var b2 = k2.querySelector('.muc-luc-bang'), n2 = k2.querySelector('.muc-luc-nut');
+          if (b2) b2.hidden = true;
+          if (n2) n2.setAttribute('aria-expanded', 'false');
+        }
+      });
+      bang.hidden = dangMo;
+      nut.setAttribute('aria-expanded', String(!dangMo));
+    });
+  });
+  // Menu chính trên màn hình hẹp: nút ☰ mở/đóng danh sách mục; bấm ra ngoài hoặc phím Esc thì đóng
+  var navMo = document.getElementById('navMo'), nav = document.getElementById('navChinh');
+  function datNav(mo) {
+    nav.classList.toggle('mo', mo);
+    navMo.setAttribute('aria-expanded', String(mo));
+  }
+  navMo.addEventListener('click', function () {
+    var mo = !nav.classList.contains('mo');
+    if (mo) {
+      khoi.forEach(function (k) {
+        var b = k.querySelector('.muc-luc-bang'), n = k.querySelector('.muc-luc-nut');
+        if (b) b.hidden = true;
+        if (n) n.setAttribute('aria-expanded', 'false');
+      });
+    }
+    datNav(mo);
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') datNav(false); });
+  khoi.forEach(function (k) {
+    var n = k.querySelector('.muc-luc-nut');
+    if (n) n.addEventListener('click', function () { datNav(false); });
+  });
+
+  document.addEventListener('click', function (e) {
+    if (nav.classList.contains('mo') && !e.target.closest('#navChinh') && !e.target.closest('#navMo')) datNav(false);
+    khoi.forEach(function (k) {
+      var bang = k.querySelector('.muc-luc-bang'), nut = k.querySelector('.muc-luc-nut');
+      if (bang && !bang.hidden && !e.target.closest('.muc-luc')) {
+        bang.hidden = true;
+        if (nut) nut.setAttribute('aria-expanded', 'false');
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

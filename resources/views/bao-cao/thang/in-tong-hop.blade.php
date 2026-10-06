@@ -1,0 +1,78 @@
+@extends('layouts.in')
+@section('tieu_de', 'Bảng tổng hợp báo cáo '.mb_strtolower($ky->ten()))
+
+@php
+  $xb = \App\Services\XuatExcelBaoCaoThang::class;
+  $theoNguoi = $daGui->keyBy('nguoi_bao_cao_id');
+@endphp
+
+@section('noi_dung')
+  <h1>{{ config('duan.bao_cao_thang.tieu_de') }}</h1>
+  <p class="phu">({{ $ky->ten() }} — tổng hợp từ báo cáo tháng của các chủ đầu tư)</p>
+
+  <h3>I. TÌNH HÌNH GỬI BÁO CÁO THÁNG</h3>
+  <p>Số chủ đầu tư phải báo cáo: {{ $phaiNop->count() }}; đã gửi: {{ $daGui->count() }}
+    (đã tiếp nhận {{ $daGui->where('trang_thai', 'da_tiep_nhan')->count() }}, chờ tiếp nhận {{ $daGui->where('trang_thai', 'da_nop')->count() }},
+    yêu cầu bổ sung {{ $daGui->where('trang_thai', 'yeu_cau_bo_sung')->count() }}); chưa gửi: {{ $phaiNop->reject(fn ($u) => $theoNguoi->has($u->id))->count() }}.
+    Hạn gửi: ngày {{ $ky->hanNop()->format('d/m/Y') }}.</p>
+  <table class="in">
+    <thead><tr><th style="width:5%">STT</th><th style="width:25%">Chủ đầu tư</th><th>Dự án</th><th style="width:15%">Tình trạng</th><th style="width:14%">Thời điểm gửi</th></tr></thead>
+    <tbody>
+    @forelse ($phaiNop as $i => $u)
+      @php $b = $theoNguoi->get($u->id); @endphp
+      <tr>
+        <td class="giua">{{ $i + 1 }}</td>
+        <td>{{ $u->don_vi ?: $u->name }}</td>
+        <td>{{ $u->duAn->pluck('ten')->join('; ') }}</td>
+        <td>{{ $b ? $b->ten_trang_thai : ($ky->quaHan() ? 'Quá hạn, chưa gửi' : 'Chưa gửi') }}</td>
+        <td class="giua">{{ $b?->gio('nop_luc') }}</td>
+      </tr>
+    @empty
+      <tr><td colspan="5" class="trong">Không có chủ đầu tư nào phải báo cáo trong tháng này.</td></tr>
+    @endforelse
+    </tbody>
+  </table>
+
+  <h3>II. TÌNH HÌNH TRIỂN KHAI CÁC DỰ ÁN THEO TỪNG LOẠI HÌNH</h3>
+  @forelse ($cauTruc as $k => $sh)
+    <div class="{{ $k ? 'ngat-trang' : '' }}">
+      <h2 style="margin-top:8pt">{{ $sh['tieu_de'] }}</h2>
+      @php
+        // Độ rộng cột theo đúng tỷ lệ cột của file Excel mẫu
+        $rong = $sh['rong'] && count($sh['rong']) === count($sh['cot']) ? $sh['rong'] : array_column($sh['cot'], 'rong');
+        // Cột TT đủ rộng để chữ "TT" không bị ngắt dòng
+        $rong[0] = max($rong[0], array_sum($rong) * 0.04);
+        $tongRong = array_sum($rong);
+      @endphp
+      <table class="in ngat-dong" style="table-layout:fixed">
+        <colgroup>@foreach ($rong as $w)<col style="width:{{ round($w / $tongRong * 100, 2) }}%">@endforeach</colgroup>
+        <thead><tr>@foreach ($sh['cot'] as $c)<th>{!! nl2br(e($c['ten'])) !!}</th>@endforeach</tr></thead>
+        <tbody>
+        @foreach ($sh['nhom'] as $i => $nhom)
+          <tr class="nhom"><td class="giua">{{ \App\Models\BaoCaoTuan::soLaMa($i + 1) }}</td><td colspan="{{ count($sh['cot']) - 1 }}">{{ $xb::tieuDeNhom($nhom) }}</td></tr>
+          @foreach ($nhom['muc'] as $j => $m)
+            <tr>
+              @foreach ($sh['cot'] as $c)
+                @php $gt = $xb::giaTri($m, $c['khoa'], $j + 1); @endphp
+                @if (in_array($c['khoa'], ['phap_ly', 'tien_do_cod', 'tien_do_thuc_te', 'tinh_hinh', 'phuong_an', 'ghi_chu'], true))
+                  <td class="van">@include('bao-cao._doan-van', ['chu' => $gt, 'trong' => ''])</td>
+                @else
+                  <td class="{{ in_array($c['khoa'], ['tt', 'cong_suat'], true) ? 'giua' : 'chu' }}">@if ($c['khoa'] === 'ten')<b>{{ $gt }}</b>@else{{ $gt }}@endif</td>
+                @endif
+              @endforeach
+            </tr>
+          @endforeach
+        @endforeach
+        </tbody>
+      </table>
+      @php $noiDung = trim((string) ($ghiChu[$sh['ma']] ?? $xb::ghiChuTuDong($sh['muc']))); @endphp
+      @if ($noiDung !== '')
+        <div class="ghi-chu"><b>Ghi chú:</b>
+          @foreach (\App\Models\BaoCaoTuanDuAn::tachDong($noiDung) as $d)<div>{{ $d }}</div>@endforeach
+        </div>
+      @endif
+    </div>
+  @empty
+    <p class="trong">Chưa có báo cáo nào được gửi trong tháng này.</p>
+  @endforelse
+@endsection

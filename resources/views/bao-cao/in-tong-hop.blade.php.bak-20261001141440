@@ -1,0 +1,68 @@
+@extends('layouts.in')
+@section('tieu_de', 'Bảng tổng hợp báo cáo '.$ky->ten())
+
+@php
+  $so = fn ($v) => \App\Models\BaoCaoTuanDuAn::so($v);
+  $pt = fn ($a, $b) => \App\Models\BaoCaoTuanDuAn::phanTram($a, $b);
+  $theoNguoi = $daGui->keyBy('nguoi_bao_cao_id');
+  $stt = 0;
+@endphp
+
+@section('noi_dung')
+  <h1>BẢNG TỔNG HỢP</h1>
+  <h2>Tình hình triển khai các dự án theo báo cáo tuần của chủ đầu tư</h2>
+  <p class="phu">Tuần {{ $ky->tuan }} năm {{ $ky->nam }} (từ ngày {{ $ky->tuNgay->format('d/m/Y') }} đến ngày {{ $ky->denNgay->format('d/m/Y') }})</p>
+
+  <h3>I. TÌNH HÌNH GỬI BÁO CÁO</h3>
+  <p>Số chủ đầu tư phải báo cáo: {{ $phaiNop->count() }}; đã gửi: {{ $daGui->count() }}
+    (đã tiếp nhận {{ $daGui->where('trang_thai', 'da_tiep_nhan')->count() }}, chờ tiếp nhận {{ $daGui->where('trang_thai', 'da_nop')->count() }},
+    yêu cầu bổ sung {{ $daGui->where('trang_thai', 'yeu_cau_bo_sung')->count() }}); chưa gửi: {{ $chuaNop->count() }}.</p>
+  <table class="in">
+    <thead><tr><th style="width:5%">STT</th><th style="width:25%">Chủ đầu tư</th><th>Dự án</th><th style="width:15%">Tình trạng</th><th style="width:14%">Thời điểm gửi</th></tr></thead>
+    <tbody>
+    @forelse ($phaiNop as $i => $u)
+      @php $b = $theoNguoi->get($u->id); @endphp
+      <tr>
+        <td class="giua">{{ $i + 1 }}</td>
+        <td>{{ $u->don_vi ?: $u->name }}</td>
+        <td>{{ $u->duAn->pluck('ten')->join('; ') }}</td>
+        <td>{{ $b ? $b->ten_trang_thai : 'Chưa gửi' }}</td>
+        <td class="giua">{{ $b?->gio('nop_luc') }}</td>
+      </tr>
+    @empty
+      <tr><td colspan="5" class="trong">Không có chủ đầu tư nào phải báo cáo trong tuần này.</td></tr>
+    @endforelse
+    </tbody>
+  </table>
+
+  <h3>II. TÌNH HÌNH TRIỂN KHAI CÁC DỰ ÁN</h3>
+  <table class="in">
+    <thead>
+      <tr>
+        <th style="width:4%">STT</th><th style="width:13%">Dự án</th><th style="width:11%">Chủ đầu tư</th><th style="width:6%">Tiến độ</th>
+        <th>Tình hình thực hiện</th><th style="width:16%">Khó khăn, vướng mắc, kiến nghị</th><th style="width:13%">Kế hoạch tiếp theo</th>
+        <th style="width:8%">Giải ngân năm (tỷ đồng)</th><th style="width:8%">Lũy kế giải ngân (tỷ đồng)</th>
+      </tr>
+    </thead>
+    <tbody>
+    @foreach ($dsBaoCao as $bc)
+      @foreach ($bc->chiTiet as $ct)
+        <tr>
+          <td class="giua">{{ ++$stt }}</td>
+          <td><b>{{ $ct->duAn?->ten ?? '(dự án đã xoá)' }}</b></td>
+          <td>{{ $bc->ten_don_vi_hien_thi }}</td>
+          <td class="giua">{{ \App\Models\BaoCaoTuanDuAn::phanTramTienDo($ct->tien_do) }}</td>
+          <td class="chu">{{ $ct->cong_viec_dang_lam }}</td>
+          <td class="chu">{{ $ct->kho_khan }}</td>
+          <td class="chu">{{ $ct->ke_hoach }}</td>
+          <td class="giua">@if ($ct->giai_ngan_nam !== null){{ $so($ct->giai_ngan_nam) }}@if ($ct->ke_hoach_von_nam)/{{ $so($ct->ke_hoach_von_nam) }}<br><i>({{ $pt($ct->giai_ngan_nam, $ct->ke_hoach_von_nam) }}% KH năm)</i>@endif @endif</td>
+          <td class="giua">@if ($ct->luy_ke_giai_ngan !== null){{ $so($ct->luy_ke_giai_ngan) }}@if ($ct->tong_muc_dau_tu)/{{ $so($ct->tong_muc_dau_tu) }}<br><i>({{ $pt($ct->luy_ke_giai_ngan, $ct->tong_muc_dau_tu) }}% TMĐT)</i>@endif @endif</td>
+        </tr>
+      @endforeach
+    @endforeach
+    @if ($stt === 0)
+      <tr><td colspan="9" class="trong">Chưa có báo cáo nào được gửi trong tuần này.</td></tr>
+    @endif
+    </tbody>
+  </table>
+@endsection

@@ -1,0 +1,20 @@
+@if ($paginator->hasPages())
+  <nav class="phantrang">
+    @if ($paginator->onFirstPage())
+      <span class="btn sm" aria-disabled="true">Trước</span>
+    @else
+      <a class="btn sm" href="{{ $paginator->previousPageUrl() }}" rel="prev">Trước</a>
+    @endif
+
+    <span class="thongtin">
+      Trang {{ $paginator->currentPage() }} / {{ $paginator->lastPage() }}
+      — {{ $paginator->firstItem() }}–{{ $paginator->lastItem() }} trong {{ number_format($paginator->total(), 0, ',', '.') }} dự án
+    </span>
+
+    @if ($paginator->hasMorePages())
+      <a class="btn sm" href="{{ $paginator->nextPageUrl() }}" rel="next">Sau</a>
+    @else
+      <span class="btn sm" aria-disabled="true">Sau</span>
+    @endif
+  </nav>
+@endif

@@ -1,0 +1,81 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\DuAn;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+
+class XuatDuLieuController extends Controller
+{
+    /**
+     * Xuất danh mục ra CSV, đọc thẳng bằng Excel.
+     * Ghi BOM UTF-8 để Excel trên Windows không lỗi font tiếng Việt.
+     */
+    public function csv(Request $request): StreamedResponse
+    {
+        $dk = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem']);
+        $ten = 'danh-muc-du-an-cong-nghiep-'.now()->format('Ymd').'.csv';
+
+        return response()->streamDownload(function () use ($dk) {
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF");
+
+            fputcsv($out, [
+                'STT', 'Tên dự án', 'Chủ đầu tư', 'Loại hình', 'Địa điểm', 'Trạng thái',
+                'Vốn đăng ký (tỷ đồng)', 'Diện tích (ha)', 'Công suất', 'Tiến độ (%)',
+                'Khởi công', 'Hoàn thành', 'Số văn bản', 'Ngày văn bản',
+                'Chủ trương', 'Đất đai', 'Môi trường', 'PCCC', 'Giấy phép XD',
+                'Vĩ độ', 'Kinh độ', 'Ghi chú',
+            ]);
+
+            $stt = 0;
+            DuAn::query()->loc($dk)->orderBy('ten')->chunk(500, function ($nhom) use ($out, &$stt) {
+                foreach ($nhom as $d) {
+                    $x = fn ($b) => $b ? 'x' : '';
+                    fputcsv($out, [
+                        ++$stt, $d->ten, $d->chu_dau_tu, $d->ten_loai_hinh, $d->dia_diem, $d->trang_thai,
+                        $d->von_dang_ky, $d->dien_tich, $d->cong_suat, $d->tien_do,
+                        $d->ngay_khoi_cong?->format('d/m/Y'), $d->ngay_hoan_thanh?->format('d/m/Y'),
+                        $d->so_van_ban, $d->ngay_van_ban?->format('d/m/Y'),
+                        $x($d->pl_chu_truong), $x($d->pl_dat_dai), $x($d->pl_moi_truong),
+                        $x($d->pl_pccc), $x($d->pl_xay_dung),
+                        $d->vi_do, $d->kinh_do,
+                        $d->ghi_chu,
+                    ]);
+                }
+            });
+
+            fclose($out);
+        }, $ten, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    /** Xuất GeoJSON để mở bằng QGIS hoặc chồng lên hệ thống GIS của tỉnh */
+    public function geojson(Request $request)
+    {
+        $features = DuAn::query()
+            ->loc($request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem']))
+            ->whereNotNull('vi_do')
+            ->get()
+            ->map(fn (DuAn $d) => [
+                'type' => 'Feature',
+                'properties' => [
+                    'ten' => $d->ten,
+                    'chu_dau_tu' => $d->chu_dau_tu,
+                    'loai_hinh' => $d->ten_loai_hinh,
+                    'dia_diem' => $d->dia_diem,
+                    'trang_thai' => $d->trang_thai,
+                    'von_ty_dong' => $d->von_dang_ky,
+                    'dien_tich_ha' => $d->dien_tich,
+                    'cong_suat' => $d->cong_suat,
+                ],
+                'geometry' => ['type' => 'Point', 'coordinates' => [$d->kinh_do, $d->vi_do]],
+            ])
+            ->values();
+
+        return response()
+            ->json(['type' => 'FeatureCollection', 'features' => $features], 200, [
+                'Content-Disposition' => 'attachment; filename="du-an-cong-nghiep-'.now()->format('Ymd').'.geojson"',
+            ], JSON_UNESCAPED_UNICODE);
+    }
+}

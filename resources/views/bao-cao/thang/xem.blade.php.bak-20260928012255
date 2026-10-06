@@ -1,0 +1,66 @@
+@extends('layouts.app')
+@section('tieu_de', 'Báo cáo '.mb_strtolower($ky->ten()).' — '.$baoCao->ten_don_vi_hien_thi)
+
+@php
+  $nguoiDung = auth()->user();
+  $laChuDauTu = $nguoiDung->vai_tro === 'chu_dau_tu';
+  $laQuanTri = $nguoiDung->vai_tro === 'quan_tri';
+@endphp
+
+@section('noi_dung')
+<div class="pad bc-trang bct-trang">
+  <div class="sheet bct-dau">
+    <div class="sheet-bd bct-dau-than">
+      <div class="bct-dau-ten">
+        <div class="hint" style="margin:0">{{ config('duan.bao_cao_thang.tieu_de') }}</div>
+        <h1>Báo cáo {{ mb_strtolower($ky->ten()) }} — {{ $baoCao->ten_don_vi_hien_thi }}</h1>
+        <div class="bct-dau-meta">
+          <span class="chip {{ $baoCao->lop_chip }}">{{ $baoCao->ten_trang_thai }}</span>
+          <span>Gửi lúc {{ $baoCao->gio('nop_luc') ?? 'chưa gửi' }}</span>
+          @if ($baoCao->nguoi_lap)<span>Người lập: {{ $baoCao->nguoi_lap }}</span>@endif
+          @if ($baoCao->dien_thoai)<span>ĐT: {{ $baoCao->dien_thoai }}</span>@endif
+          @unless ($laChuDauTu)<span>Tài khoản: {{ $baoCao->nguoiBaoCao?->name }} · {{ $baoCao->nguoiBaoCao?->email }}</span>@endunless
+          @if ($baoCao->xu_ly_luc)<span>Sở xử lý: {{ $baoCao->nguoiXuLy?->name }}, {{ $baoCao->gio('xu_ly_luc') }}</span>@endif
+        </div>
+        @if ($baoCao->y_kien_xu_ly)
+          <div class="hint" style="margin:6px 0 0;white-space:pre-line">Ý kiến của Sở: {{ $baoCao->y_kien_xu_ly }}</div>
+        @endif
+      </div>
+      <div class="bct-dau-nut">
+        @if ($laChuDauTu && $baoCao->conSuaDuoc())
+          <a href="{{ route('bao-cao.thang.soan', ['ky' => $ky->ma()]) }}" class="btn primary">
+            {{ $baoCao->trang_thai === 'yeu_cau_bo_sung' ? 'Bổ sung báo cáo' : 'Sửa báo cáo' }}
+          </a>
+        @endif
+        <a href="{{ route('bao-cao.thang.excel', $baoCao) }}" class="btn">Tải Excel theo mẫu</a>
+        <button type="button" class="btn" onclick="window.print()">In</button>
+        <a href="{{ route('bao-cao.thang.index', $laChuDauTu ? [] : ['ky' => $ky->ma()]) }}" class="btn">Về danh sách</a>
+      </div>
+    </div>
+
+    @if ($laQuanTri && $baoCao->trang_thai === 'da_nop')
+      <form method="post" action="{{ route('bao-cao.thang.xu-ly', $baoCao) }}" class="sheet-bd bct-xu-ly">
+        @csrf @method('patch')
+        @if ($errors->any())<div class="loi" style="margin:0">{{ $errors->first() }}</div>@endif
+        <label class="f" style="flex:1;min-width:260px">Ý kiến gửi chủ đầu tư (bắt buộc khi yêu cầu bổ sung)
+          <textarea name="y_kien" rows="2" maxlength="2000">{{ old('y_kien') }}</textarea>
+        </label>
+        <div style="display:flex;gap:7px;align-items:flex-end">
+          <button name="hanh_dong" value="tiep_nhan" class="btn primary">Tiếp nhận</button>
+          <button name="hanh_dong" value="yeu_cau_bo_sung" class="btn danger">Yêu cầu bổ sung</button>
+        </div>
+      </form>
+    @endif
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-bd">
+      <div class="bct-in-tieu-de">
+        <div><b>{{ config('duan.bao_cao_thang.tieu_de') }}</b></div>
+        <div><i>({{ $ky->ten() }} — Đơn vị báo cáo: {{ $baoCao->ten_don_vi_hien_thi }})</i></div>
+      </div>
+      @include('bao-cao.thang._bang', ['cauTruc' => $cauTruc])
+    </div>
+  </div>
+</div>
+@endsection

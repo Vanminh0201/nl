@@ -1,0 +1,59 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
+
+class DangNhapController extends Controller
+{
+    public function form()
+    {
+        return view('dang-nhap');
+    }
+
+    public function dangNhap(Request $request)
+    {
+        $du_lieu = $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
+        ], [], ['email' => 'địa chỉ thư điện tử', 'password' => 'mật khẩu']);
+
+        if (! Auth::attempt($du_lieu, $request->boolean('ghi_nho'))) {
+            throw ValidationException::withMessages([
+                'email' => 'Thông tin đăng nhập không đúng.',
+            ]);
+        }
+
+        if (! Auth::user()->da_duyet) {
+            Auth::logout();
+
+            throw ValidationException::withMessages([
+                'email' => 'Tài khoản đang chờ quản trị viên duyệt, chưa thể đăng nhập.',
+            ]);
+        }
+
+        $trangDau = Auth::user()->trangDau();
+        if (! $trangDau) {
+            Auth::logout();
+
+            throw ValidationException::withMessages([
+                'email' => 'Tài khoản chưa được cấp quyền xem mục nào — liên hệ quản trị hệ thống.',
+            ]);
+        }
+
+        $request->session()->regenerate();
+
+        return redirect()->intended($trangDau);
+    }
+
+    public function dangXuat(Request $request)
+    {
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect()->route('dang-nhap');
+    }
+}

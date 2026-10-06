@@ -1,0 +1,29 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class DuAnHinhHoc extends Model
+{
+    protected $table = 'du_an_hinh_hoc';
+
+    protected $fillable = ['du_an_id', 'loai', 'ten', 'toa_do', 'nhan_diem', 'hien_thi', 'thu_tu', 'bieu_tuong', 'mau'];
+
+    protected $casts = [
+        'toa_do' => 'array',
+        'nhan_diem' => 'array',
+        'hien_thi' => 'boolean',
+    ];
+
+    public const LOAI = [
+        'diem' => 'Điểm',
+        'duong' => 'Đường (tuyến hở)',
+        'vung' => 'Vùng (khép kín)',
+    ];
+
+    public function duAn()
+    {
+        return $this->belongsTo(DuAn::class);
+    }
+}

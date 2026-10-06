@@ -1,0 +1,271 @@
+/* Biểu tượng dự án, dùng chung cho điểm trên bản đồ, chú giải và trang Danh mục.
+   Vẽ bằng SVG thuần, không cần thư viện icon ngoài.
+
+   2 tầng dữ liệu:
+   - HINH: thư viện hình vẽ sẵn, cố định trong code (an toàn, không nhận SVG tự do từ người dùng).
+   - Danh sách biểu tượng (mã, tên, chọn 1 hình trong HINH): quản lý CRUD ở trang Danh mục, nạp qua
+     window.DS_BIEU_TUONG (mảng {ma, ten, hinh}) — trang nào dùng icon phải gán biến này TRƯỚC khi
+     nạp file này. Mã không có trong danh sách (đã bị xoá...) dùng tạm hình "khac". */
+(function () {
+  'use strict';
+
+  var NET = 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+
+  var HINH = {
+    diem_moc: '<path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.2"/>',
+    tram_dien: '<polygon points="13,2 4,14 11,14 9,22 20,9 13,9"/>',
+    // Ký hiệu máy biến áp theo tiêu chuẩn sơ đồ điện (IEC 60617): 2 vòng tròn chồng nhau
+    mba: '<circle cx="9" cy="12" r="6.2"/><circle cx="15" cy="12" r="6.2"/>',
+    toa_nha: '<rect x="6" y="3" width="12" height="18"/><line x1="9" y1="7" x2="9" y2="9"/><line x1="15" y1="7" x2="15" y2="9"/><line x1="9" y1="12" x2="9" y2="14"/><line x1="15" y1="12" x2="15" y2="14"/><line x1="9" y1="17" x2="9" y2="19"/><line x1="15" y1="17" x2="15" y2="19"/>',
+    kho: '<path d="M3 21V10l9-6 9 6v11H3z"/><line x1="3" y1="21" x2="21" y2="21"/><rect x="9" y="14" width="6" height="7"/>',
+    canh_bao: '<path d="M12 3l10 18H2z"/><line x1="12" y1="10" x2="12" y2="14"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/>',
+    ccn: '<rect x="4" y="11" width="16" height="9"/><polyline points="4,11 8,7 12,11 16,7 20,11"/><line x1="16" y1="7" x2="16" y2="3"/>',
+    kcn: '<rect x="2" y="14" width="5" height="7"/><rect x="9" y="9" width="6" height="12"/><rect x="17" y="12" width="5" height="9"/><line x1="2" y1="21" x2="22" y2="21"/>',
+    che_bien: '<path d="M4 20c0-9 6-16 16-16 0 9-6 16-16 16z"/><line x1="4" y1="20" x2="14" y2="10"/>',
+    vlxd: '<rect x="3" y="3" width="18" height="5"/><rect x="3" y="10" width="18" height="5"/><rect x="3" y="17" width="18" height="4"/>',
+    khoang_san: '<polyline points="2,20 7,9 11,15 15,6 22,20"/>',
+    // Đập thuỷ điện nhìn chính diện: mặt hồ chứa sau đỉnh đập, thân đập bê tông, 3 cửa xả trên đỉnh,
+    // 3 dòng nước xả đổ xuống và dòng sông phía dưới. Khi đang vận hành (app.css) vệt bọt trắng .bot-nuoc
+    // chạy dọc dòng xả và sóng .song-nuoc trôi theo dòng sông. Sóng dài 8 đơn vị/chu kỳ, vẽ dư 2 bên.
+    thuy_dien: '<g class="to-mau">'
+      + '<path d="M4 2.8q2-1.1 4 0t4 0t4 0t4 0" stroke="#4fc3f7" stroke-width="1.4"/>'
+      + '<polygon points="2.5,5 21.5,5 17.5,15 6.5,15" fill="#e3eaef" stroke="#fff" stroke-width="1.2"/>'
+      + '<g fill="#15475a" stroke="none"><rect x="7" y="5.9" width="2" height="2.3" rx=".4"/><rect x="11" y="5.9" width="2" height="2.3" rx=".4"/><rect x="15" y="5.9" width="2" height="2.3" rx=".4"/></g>'
+      + '<g stroke="#4fc3f7" stroke-width="1.8"><line x1="8" y1="8.4" x2="8" y2="16"/><line x1="12" y1="8.4" x2="12" y2="16"/><line x1="16" y1="8.4" x2="16" y2="16"/></g>'
+      + '<g class="bot-nuoc" stroke="#fff" stroke-width="1" stroke-dasharray="1.4 2"><line x1="8" y1="8.4" x2="8" y2="16"/><line x1="12" y1="8.4" x2="12" y2="16"/><line x1="16" y1="8.4" x2="16" y2="16"/></g>'
+      + '<g class="song-nuoc" stroke="#4fc3f7" stroke-width="1.6">'
+      + '<path d="M-8 18.2q2-1.5 4 0t4 0t4 0t4 0t4 0t4 0t4 0t4 0t4 0t4 0"/>'
+      + '<path d="M-8 21.4q2-1.2 4 0t4 0t4 0t4 0t4 0t4 0t4 0t4 0t4 0t4 0"/></g>'
+      + '</g>',
+    // Cánh quạt gom riêng 1 nhóm (tâm quay 12,12) để CSS cho quay mà trụ đứng yên — xem .canh-quat trong app.css
+    dien_gio: '<line x1="12" y1="12" x2="12" y2="21"/><g class="canh-quat"><line x1="12" y1="12" x2="12" y2="3"/><line x1="12" y1="12" x2="19" y2="16"/><line x1="12" y1="12" x2="5" y2="16"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></g>',
+    // Dàn pin mặt trời tô màu như pin thật (tấm xanh đậm, ô lưới xanh nhạt, khung trắng), mặt trời vàng
+    // phía trên với 3 tia nắng chiếu xuống. Khi đang vận hành (app.css): mặt trời nhấp nháy, tia nắng
+    // loé lần lượt và vệt sáng .anh-sang quét ngang tấm pin (cắt gọn trong tấm pin bằng clipPath —
+    // "{id}" được thay bằng mã riêng cho từng icon để không trùng id).
+    dien_mat_troi: '<g class="to-mau">'
+      + '<circle class="mat-troi" cx="12" cy="3.6" r="2.4" fill="#ffd93b" stroke="none"/>'
+      + '<g class="tia-chieu" stroke="#fff3a6" stroke-width="1.6"><line x1="10.1" y1="6.6" x2="7.6" y2="9.6"/><line x1="12" y1="7" x2="12" y2="9.6"/><line x1="13.9" y1="6.6" x2="16.4" y2="9.6"/></g>'
+      + '<clipPath id="{id}"><polygon points="5.5,11 18.5,11 22.5,19 1.5,19"/></clipPath>'
+      + '<polygon points="5.5,11 18.5,11 22.5,19 1.5,19" fill="#1c4f9c" stroke="none"/>'
+      + '<g clip-path="url(#{id})">'
+      + '<g stroke="#9cc2f2" stroke-width=".9"><line x1="0" y1="15" x2="24" y2="15"/><line x1="8.75" y1="11" x2="6.75" y2="19"/><line x1="12" y1="11" x2="12" y2="19"/><line x1="15.25" y1="11" x2="17.25" y2="19"/></g>'
+      + '<polygon class="anh-sang" points="-4,11 0,11 -3,19 -7,19" fill="#fff" stroke="none" opacity=".9"/></g>'
+      + '<polygon points="5.5,11 18.5,11 22.5,19 1.5,19" stroke="#fff" stroke-width="1.4"/>'
+      + '</g>'
+      + '<line x1="12" y1="19.7" x2="12" y2="22.5" stroke-width="1.6"/><line x1="8.5" y1="22.5" x2="15.5" y2="22.5" stroke-width="1.6"/>',
+    det_may: '<path d="M9 3l3 2 3-2 4 4-2.5 2.5V21H7.5V9.5L5 7z"/>',
+    khac: '<polygon points="12,3 21,8 21,16 12,21 3,16 3,8"/><polyline points="3,8 12,13 21,8"/><line x1="12" y1="13" x2="12" y2="21"/>',
+
+    nha_may: '<path d="M3 21V13l4-3 4 3v-3l4 3v-3l4 3v8H3z"/><line x1="3" y1="21" x2="21" y2="21"/>',
+    cang_bien: '<circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="19"/><path d="M6 13a6 6 0 0 0 6 8 6 6 0 0 0 6-8"/><line x1="4" y1="13" x2="8" y2="13"/><line x1="16" y1="13" x2="20" y2="13"/>',
+    san_bay: '<polygon points="3,11 21,4 14,21 11,13"/><line x1="11" y1="13" x2="21" y2="4"/>',
+    truong_hoc: '<polygon points="12,4 22,9 12,14 2,9"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/><line x1="22" y1="9" x2="22" y2="16"/>',
+    benh_vien: '<rect x="3" y="3" width="18" height="18" rx="3"/><line x1="12" y1="7" x2="12" y2="17"/><line x1="7" y1="12" x2="17" y2="12"/>',
+    nong_nghiep: '<line x1="12" y1="21" x2="12" y2="9"/><path d="M12 9c-3 0-5-2-5-5 3 0 5 2 5 5z"/><path d="M12 9c3 0 5-2 5-5-3 0-5 2-5 5z"/><path d="M12 14c-3 0-5-2-5-5 3 0 5 2 5 5z"/><path d="M12 14c3 0 5-2 5-5-3 0-5 2-5 5z"/>',
+    chan_nuoi: '<circle cx="7" cy="8" r="1.6"/><circle cx="12" cy="6" r="1.6"/><circle cx="17" cy="8" r="1.6"/><path d="M12 12c-3 0-5 2-5 4.5S9 21 12 21s5-1 5-4.5S15 12 12 12z"/>',
+    thuy_san: '<path d="M3 12c4-5 10-6 14-3l4 3-4 3c-4 3-10 2-14-3z"/><circle cx="15" cy="11" r="0.8" fill="currentColor" stroke="none"/><path d="M3 12l-2-3m2 3l-2 3"/>',
+    khi_dot: '<path d="M12 2c1 4-3 5-3 9a3 3 0 0 0 6 0c0-1-1-2-1-3 2 1 3 3 3 5a5 5 0 0 1-10 0C7 8 10 6 12 2z"/>',
+    than: '<rect x="4" y="14" width="6" height="6" rx="1"/><rect x="10" y="10" width="6" height="10" rx="1"/><rect x="16" y="15" width="4" height="5" rx="1"/>',
+    logistics: '<rect x="2" y="10" width="11" height="7"/><path d="M13 12h4l3 3v2h-7z"/><circle cx="6" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/>',
+    vien_thong: '<line x1="12" y1="22" x2="12" y2="12"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M5 9a8 8 0 0 1 14 0"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>',
+    moi_truong: '<circle cx="12" cy="12" r="9"/><path d="M8 16c0-5 3-8 8-8 0 5-3 8-8 8z"/>',
+    an_ninh: '<path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><polyline points="8.5,12 11,14.5 15.5,9.5"/>',
+    nuoc_sach: '<path d="M8 3h8v4l3 4v10H5V11l3-4z"/><line x1="8" y1="7" x2="16" y2="7"/>',
+    cau_duong: '<path d="M2 17c3-6 6-9 10-9s7 3 10 9"/><line x1="2" y1="21" x2="22" y2="21"/><line x1="6" y1="21" x2="6" y2="14"/><line x1="12" y1="21" x2="12" y2="11"/><line x1="18" y1="21" x2="18" y2="14"/>',
+    may_tinh: '<rect x="7" y="7" width="10" height="10" rx="1"/><line x1="9" y1="3" x2="9" y2="7"/><line x1="15" y1="3" x2="15" y2="7"/><line x1="9" y1="17" x2="9" y2="21"/><line x1="15" y1="17" x2="15" y2="21"/><line x1="3" y1="9" x2="7" y2="9"/><line x1="3" y1="15" x2="7" y2="15"/><line x1="17" y1="9" x2="21" y2="9"/><line x1="17" y1="15" x2="21" y2="15"/>',
+    ngan_hang: '<polygon points="12,2 22,8 2,8"/><line x1="4" y1="8" x2="4" y2="20"/><line x1="9" y1="8" x2="9" y2="20"/><line x1="15" y1="8" x2="15" y2="20"/><line x1="20" y1="8" x2="20" y2="20"/><line x1="2" y1="21" x2="22" y2="21"/>',
+    sao: '<polygon points="12,2 15,9 22,9 16.5,13.5 18.5,21 12,17 5.5,21 7.5,13.5 2,9 9,9"/>',
+    co: '<line x1="5" y1="21" x2="5" y2="3"/><path d="M5 4h14l-4 4 4 4H5z"/>',
+  };
+
+  var HINH_NHAN = {
+    diem_moc: 'Điểm mốc', tram_dien: 'Trạm biến áp / cột điện', mba: 'Máy biến áp (2 vòng tròn)', toa_nha: 'Toà nhà, văn phòng',
+    kho: 'Nhà kho, kho bãi', canh_bao: 'Cảnh báo, lưu ý',
+    ccn: 'Nhà xưởng (mái răng cưa)', kcn: 'Cụm nhiều khối nhà', che_bien: 'Lá, chế biến nông sản',
+    vlxd: 'Xếp tấm vật liệu', khoang_san: 'Dãy núi, khai khoáng', thuy_dien: 'Đập thuỷ điện',
+    dien_gio: 'Cánh quạt gió', dien_mat_troi: 'Dàn pin mặt trời', det_may: 'Áo, dệt may', khac: 'Khối lục giác',
+    nha_may: 'Nhà máy, mái tam giác', cang_bien: 'Mỏ neo, cảng biển', san_bay: 'Máy bay',
+    truong_hoc: 'Mũ tốt nghiệp', benh_vien: 'Chữ thập y tế', nong_nghiep: 'Bông lúa',
+    chan_nuoi: 'Chân thú, chăn nuôi', thuy_san: 'Con cá', khi_dot: 'Ngọn lửa, khí đốt',
+    than: 'Khối than xếp', logistics: 'Xe tải', vien_thong: 'Cột phát sóng',
+    moi_truong: 'Lá trong vòng tròn, môi trường', an_ninh: 'Khiên, an ninh', nuoc_sach: 'Bồn nước',
+    cau_duong: 'Cầu đường', may_tinh: 'Chip, công nghệ', ngan_hang: 'Toà nhà cột, ngân hàng',
+    sao: 'Ngôi sao', co: 'Lá cờ',
+  };
+
+  function danhSach() {
+    return window.DS_BIEU_TUONG || [];
+  }
+
+  function timBieuTuong(ma) {
+    var ds = danhSach();
+    for (var i = 0; i < ds.length; i++) {
+      if (ds[i].ma === ma) return ds[i];
+    }
+
+    return null;
+  }
+
+  function hinhCuaMa(ma) {
+    var b = timBieuTuong(ma);
+
+    return b ? b.hinh : 'khac';
+  }
+
+  /** Vẽ trực tiếp 1 hình vẽ sẵn trong thư viện HINH theo khoá (không qua tra cứu mã biểu tượng) */
+  var demId = 0;
+
+  function svgHinh(hinh, kichThuoc) {
+    kichThuoc = kichThuoc || 18;
+    var id = 'bt-cat-' + (++demId);
+    var noiDung = (HINH[hinh] || HINH.khac).replace(/\{id\}/g, id);
+
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="' + kichThuoc + '" height="' + kichThuoc + '" ' + NET + '>' + noiDung + '</svg>';
+  }
+
+  /** Vẽ ảnh do quản trị tự tải lên, tô màu bằng CSS mask-image để hoà cùng phong cách icon SVG viết sẵn */
+  function anhTaiLen(url, kichThuoc) {
+    kichThuoc = kichThuoc || 18;
+    // Bọc URL bằng nháy đơn cho url() CSS vì thuộc tính style bên ngoài dùng nháy kép — nếu lẫn nháy
+    // kép trong URL sẽ làm hỏng cấu trúc HTML của thẻ (đóng sớm thuộc tính style).
+    var u = String(url).replace(/"/g, '%22').replace(/'/g, '%27');
+
+    return '<span class="bieu-tuong-anh" style="width:' + kichThuoc + 'px;height:' + kichThuoc + 'px;-webkit-mask-image:url(\'' + u + '\');mask-image:url(\'' + u + '\')"></span>';
+  }
+
+  function svgBieuTuong(ma, kichThuoc) {
+    var b = timBieuTuong(ma);
+    if (b && b.tep_url) return anhTaiLen(b.tep_url, kichThuoc);
+
+    return svgHinh(hinhCuaMa(ma), kichThuoc);
+  }
+
+  // Khung nền của huy hiệu: tròn (mặc định); vuông cho TBA/máy biến áp để nổi bật, phân biệt ngay
+  // với các điểm khác; chữ nhật nằm ngang cho điện mặt trời — giống hình dàn pin nhìn từ trên xuống.
+  var KHUNG = { mba: 'vuong', dien_mat_troi: 'chu-nhat' };
+
+  /** Kích thước khung (w×h) và hình vẽ bên trong theo cỡ chuẩn k (chiều cao) */
+  function coKhung(hinh, k) {
+    return KHUNG[hinh] === 'chu-nhat'
+      ? { w: Math.round(k * 1.5), h: k, svg: Math.round(k * 0.8) }
+      : { w: k, h: k, svg: Math.round(k * 0.6) };
+  }
+
+  function khungHtml(hinh, mau, kichThuoc, noiDung) {
+    var c = coKhung(hinh, kichThuoc);
+
+    return '<span class="bieu-tuong-badge' + (KHUNG[hinh] ? ' bieu-tuong-badge-' + KHUNG[hinh] : '') + '" style="width:' + c.w
+      + 'px;height:' + c.h + 'px;background:' + mau + '">' + noiDung(c.svg) + '</span>';
+  }
+
+  function badgeHtml(ma, mau, kichThuoc) {
+    return khungHtml(hinhCuaMa(ma), mau, kichThuoc || 26, function (co) { return svgBieuTuong(ma, co); });
+  }
+
+  /** lopThem: class CSS thêm cho điểm (VD "dang-van-hanh" để cánh quạt gió, nước xả qua đập thuỷ điện, nắng chiếu dàn pin chuyển động; "chua-van-hanh" để làm nhạt phần tô màu) */
+  function divIcon(ma, mau, kichThuoc, lopThem) {
+    kichThuoc = kichThuoc || 26;
+    var c = coKhung(hinhCuaMa(ma), kichThuoc);
+
+    return L.divIcon({
+      className: 'bieu-tuong-du-an' + (lopThem ? ' ' + lopThem : ''),
+      html: badgeHtml(ma, mau, kichThuoc),
+      iconSize: [c.w, c.h],
+      iconAnchor: [c.w / 2, c.h / 2],
+    });
+  }
+
+  function badgeHinhHtml(hinh, kichThuoc) {
+    return khungHtml(hinh, '#5b6773', kichThuoc || 26, function (co) { return svgHinh(hinh, co); });
+  }
+
+  /**
+   * Bộ chọn biểu tượng dạng lưới bấm-chọn (giống bấm chọn màu): huy hiệu hiện tại vừa là nút mở
+   * bảng vừa là ô xem trước, bấm 1 ô trong bảng để chọn ngay, không cần đọc danh sách chữ.
+   *
+   * el: phần tử rỗng sẽ được vẽ bộ chọn vào bên trong, đọc cấu hình qua data-*:
+   *   data-chon: mã đang chọn ban đầu.
+   *   data-ten:  tên trường (name) cho ô input ẩn thật sự gửi lên form — bỏ trống nếu chỉ dùng nội bộ
+   *              bằng JS (không cần gửi kèm form), tránh gửi thừa trường không tên lên server.
+   *   data-form: id của <form> ngoài (nếu input ẩn nằm ngoài form đó, dùng thuộc tính form="").
+   *   data-mau:  id ô <input type=color> màu liền kề — chỉ áp dụng khi che="bieu_tuong", để huy
+   *              hiệu tô đúng màu của loại hình. Bỏ trống thì dùng màu trung tính.
+   * che: 'bieu_tuong' (mặc định, chọn theo danh sách CRUD ở trang Danh mục) hoặc 'hinh' (chọn 1 hình
+   *      vẽ sẵn trong thư viện, dùng cho chính form CRUD biểu tượng).
+   */
+  function khoiTaoBoChon(el, che) {
+    che = che || 'bieu_tuong';
+    var ten = el.dataset.ten || '';
+    var formId = el.dataset.form || '';
+    var mauEl = el.dataset.mau ? document.getElementById(el.dataset.mau) : null;
+    var giaTri = el.dataset.chon || (che === 'hinh' ? 'khac' : 'diem_moc');
+
+    function mau() { return mauEl ? mauEl.value : '#5b6773'; }
+    function badge(ma, kichThuoc) { return che === 'hinh' ? badgeHinhHtml(ma, kichThuoc) : badgeHtml(ma, mau(), kichThuoc); }
+    function dsTuyChon() {
+      return che === 'hinh'
+        ? Object.keys(HINH).map(function (h) { return { ma: h, ten: HINH_NHAN[h] || h }; })
+        : danhSach();
+    }
+
+    el.innerHTML = '<input type="hidden"' + (formId ? ' form="' + formId + '"' : '') + (ten ? ' name="' + ten + '"' : '')
+      + ' class="bt-chon-gt" value="' + giaTri + '">'
+      + '<button type="button" class="bt-chon-nut"></button>'
+      + '<div class="bt-chon-bang" hidden></div>';
+
+    var gt = el.querySelector('.bt-chon-gt');
+    var nut = el.querySelector('.bt-chon-nut');
+    var bang = el.querySelector('.bt-chon-bang');
+
+    function veNut() { nut.innerHTML = badge(giaTri, 26); nut.title = 'Bấm để chọn biểu tượng'; }
+    function veBang() {
+      bang.innerHTML = dsTuyChon().map(function (b) {
+        return '<button type="button" class="bt-chon-o' + (b.ma === giaTri ? ' dang-chon' : '') + '" data-ma="' + b.ma + '" title="' + b.ten + '">'
+          + badge(b.ma, 24) + '</button>';
+      }).join('');
+    }
+
+    veNut();
+    veBang();
+
+    function dinhViBang() {
+      var r = nut.getBoundingClientRect();
+      var trai = Math.min(r.left, window.innerWidth - 220);
+      bang.style.top = (r.bottom + 4) + 'px';
+      bang.style.left = Math.max(4, trai) + 'px';
+    }
+
+    nut.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var dangAn = bang.hidden;
+      Array.prototype.forEach.call(document.querySelectorAll('.bt-chon-bang'), function (b) { b.hidden = true; });
+      bang.hidden = !dangAn;
+      if (!bang.hidden) dinhViBang();
+    });
+
+    bang.addEventListener('click', function (e) {
+      var o = e.target.closest('.bt-chon-o');
+      if (!o) return;
+      giaTri = o.dataset.ma;
+      gt.value = giaTri;
+      bang.hidden = true;
+      veNut();
+      veBang();
+      gt.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    if (mauEl) mauEl.addEventListener('input', function () { veNut(); veBang(); });
+  }
+
+  document.addEventListener('click', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.bt-chon-bang'), function (b) { b.hidden = true; });
+  });
+
+  window.BieuTuongLoaiHinh = {
+    svg: svgBieuTuong, svgHinh: svgHinh, badgeHtml: badgeHtml, badgeHinhHtml: badgeHinhHtml, divIcon: divIcon,
+    // Kích thước thật {w, h} của huy hiệu theo mã biểu tượng — khung chữ nhật rộng hơn cỡ chuẩn
+    kichThuocBadge: function (ma, k) { return coKhung(hinhCuaMa(ma), k || 26); },
+    khoiTaoBoChon: khoiTaoBoChon,
+  };
+})();

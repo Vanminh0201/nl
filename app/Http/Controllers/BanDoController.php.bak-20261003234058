@@ -1,0 +1,305 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\BieuTuong;
+use App\Models\DoiTuongHaTang;
+use App\Models\DuAn;
+use App\Models\LoaiHinhDuAn;
+use App\Models\LopHaTang;
+use App\Models\TrangThaiDuAn;
+use App\Services\PhanTichHaTang;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class BanDoController extends Controller
+{
+    public function index()
+    {
+        return view('ban-do.index', [
+            'lop' => LopHaTang::withCount('doiTuong')->orderBy('ten')->get(),
+            'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
+            'dsTrangThai' => TrangThaiDuAn::danhSach(),
+            'dsBieuTuong' => BieuTuong::danhSach()->values(),
+        ]);
+    }
+
+    /** GeoJSON các dự án đang khớp bộ lọc, gồm điểm đại diện và mọi lớp đường/vùng/điểm phụ nếu có */
+    public function duAn(Request $request): JsonResponse
+    {
+        // Được xem Bản đồ là thấy toàn bộ dự án trên bản đồ (kể cả chủ đầu tư chưa có quyền "Xem tất
+        // cả dự án"); riêng hồ sơ chi tiết vẫn theo phạm vi dự án của tài khoản — cờ xem_chi_tiet.
+        $nguoiDung = $request->user();
+        $xemMoiHoSo = $nguoiDung->vai_tro !== 'chu_dau_tu' || $nguoiDung->duocXem('tat_ca_du_an');
+
+        $features = DuAn::withoutGlobalScope('chu_dau_tu')
+            ->loc($request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem']))
+            ->withExists('hinhHoc')
+            ->get()
+            ->map(function (DuAn $d) use ($nguoiDung, $xemMoiHoSo) {
+                $tt = [
+                    'id' => $d->id,
+                    'ten' => $d->ten,
+                    'chu_dau_tu' => $d->chu_dau_tu,
+                    'loai_hinh' => $d->ten_loai_hinh,
+                    'loai_hinh_ma' => $d->loai_hinh,
+                    'bieu_tuong' => $d->bieu_tuong_loai_hinh,
+                    'mau' => $d->mau,
+                    'trang_thai' => $d->trang_thai,
+                    'dia_diem' => $d->dia_diem,
+                    'cong_suat' => $d->cong_suat_mw,
+                    'von' => $d->von_dang_ky,
+                    'url' => route('du-an.show', $d),
+                    'xem_chi_tiet' => $xemMoiHoSo || (int) $d->chu_dau_tu_id === (int) $nguoiDung->id,
+                    'co_chi_tiet' => (bool) $d->hinh_hoc_exists,
+                    'vi_do' => $d->vi_do,
+                    'kinh_do' => $d->kinh_do,
+                ];
+
+                // Bản đồ chung mặc định chỉ thể hiện điểm đại diện của mỗi dự án; các lớp chi tiết (ranh
+                // giới, tuyến cáp, vị trí tua-bin…) người xem bật riêng từng dự án, tải qua chiTietDuAn().
+                // Dự án chưa có toạ độ vẫn trả về (để hiện trong danh sách bên, đánh dấu riêng) —
+                // geometry để null, JS không vẽ chấm nào lên bản đồ cho các dự án này.
+                return [
+                    'type' => 'Feature',
+                    'properties' => $tt + ['vai_tro' => 'diem'],
+                    'geometry' => $d->vi_do === null ? null : ['type' => 'Point', 'coordinates' => [$d->kinh_do, $d->vi_do]],
+                ];
+            })
+            ->values();
+
+        return response()->json(['type' => 'FeatureCollection', 'features' => $features]);
+    }
+
+    /**
+     * Các lớp chi tiết của 1 dự án (gom nhóm như bản đồ trong trang dự án) để bật "hiện chi tiết" trên
+     * bản đồ chung. Cùng phạm vi với hồ sơ dự án: chủ đầu tư chỉ lấy được dự án của mình (scope của DuAn).
+     */
+    public function chiTietDuAn(DuAn $duAn): JsonResponse
+    {
+        return response()->json(['id' => $duAn->id, 'ten' => $duAn->ten, 'nhom' => $duAn->nhomHinhHoc()]);
+    }
+
+    /** GeoJSON hạ tầng lưới điện trong khung nhìn hiện tại */
+    public function haTang(Request $request, PhanTichHaTang $phanTich): JsonResponse
+    {
+        $request->validate(['bbox' => ['required', 'string']]);
+
+        $bbox = array_map('floatval', explode(',', $request->query('bbox')));
+        if (count($bbox) !== 4) {
+            return response()->json(['message' => 'Tham số bbox phải gồm 4 giá trị.'], 422);
+        }
+
+        $gioiHan = (int) config('duan.gioi_han_ha_tang', 4000);
+        $features = $phanTich->trongKhungNhin($bbox, $gioiHan);
+
+        return response()->json([
+            'type' => 'FeatureCollection',
+            'features' => $features,
+            'bi_cat' => count($features) >= $gioiHan,
+        ]);
+    }
+
+    /**
+     * Số liệu cho menu "Lưới điện" ở trang Bản đồ, chia 2 nhánh Hiện trạng / Quy hoạch. Mỗi nhánh gồm:
+     * lưới truyền tải - phân phối (đường dây theo cấp điện áp, TBA theo cấp điện áp) và phần đấu nối nguồn
+     * điện (đường dây đấu nối nhà máy liệt kê từng tuyến, trạm nâng áp/trạm cắt nhà máy, nguồn điện theo
+     * CSDL chưa có trong danh sách dự án). Lớp đấu nối nhận theo tên lớp ("Đấu nối…", "Trạm nâng áp…").
+     */
+    public function thongKeHaTang(): JsonResponse
+    {
+        $lop = LopHaTang::orderBy('id')->get(['id', 'ten', 'quy_hoach', 'so_doi_tuong', 'hien_thi']);
+        $theoTen = $lop->keyBy('ten');
+        $tenTheoId = $lop->pluck('ten', 'id');
+        $hienThiTheoId = $lop->pluck('hien_thi', 'id');
+        $dangHien = fn (array $dsId) => collect($dsId)->every(fn ($id) => (bool) ($hienThiTheoId[$id] ?? true));
+        $daGhep = [];
+
+        $tuyen = [];        // [trạng thái][kV][] tuyến lưới (theo lớp, đã ghép cặp điểm + đường)
+        $lopTba = [];       // [trạng thái][kV][] lop_id TBA lưới
+        $lopDauNoi = [];    // [trạng thái][kV][] lop_id đường dây đấu nối nguồn điện
+        $lopTramNguon = []; // [trạng thái][] lop_id trạm nâng áp, trạm cắt nhà máy điện
+        $lopNhaMay = [];    // [trạng thái][] lop_id điểm nhà máy theo CSDL chưa có trong danh sách dự án
+
+        foreach ($lop as $l) {
+            if (in_array($l->id, $daGhep, true)) {
+                continue;
+            }
+            $tt = $l->quy_hoach ? 'quy_hoach' : 'hien_trang';
+            if (str_starts_with($l->ten, 'Nguồn điện theo CSDL')) {
+                $lopNhaMay[$tt][] = $l->id;
+
+                continue;
+            }
+            // Lớp đặt tên "Lưới điện …kV" (VD vùng lưới 110kV nhập từ tệp gốc) xếp cùng nhóm đường dây cấp đó,
+            // để nút ẩn/hiện cả nhánh không bỏ sót lớp nào còn hiện trên bản đồ
+            if (! preg_match('/^(Đường dây|TBA|Lưới điện)\b.*?(\d+)\s*kV/u', $l->ten, $m)) {
+                continue;
+            }
+            $kv = (int) $m[2];
+
+            if ($m[1] === 'TBA') {
+                if (preg_match('/trạm nâng áp|trạm cắt|nhà máy điện/iu', $l->ten)) {
+                    $lopTramNguon[$tt][] = $l->id;
+                } else {
+                    $lopTba[$tt][$kv][] = $l->id;
+                }
+                $daGhep[] = $l->id;
+
+                continue;
+            }
+
+            if (mb_stripos($l->ten, 'đấu nối') !== false) {
+                $lopDauNoi[$tt][$kv][] = $l->id;
+                $daGhep[] = $l->id;
+
+                continue;
+            }
+
+            // Đường dây: ghép cặp lớp "điểm" + "đường" cùng tuyến lại thành 1 dòng hiển thị. Dò theo
+            // tên gốc (bỏ hậu tố) rồi tìm CẢ HAI vế thay vì chỉ tìm xuôi từ "điểm" sang "đường" —
+            // vì lớp "đường" thường có id nhỏ hơn nên được duyệt trước, tìm ngược mới không bị trùng.
+            $goc = preg_replace('/\s*—\s*(điểm|đường)$/u', '', $l->ten);
+            $lopId = [];
+            $soDoiTuong = 0;
+            if ($goc !== $l->ten) {
+                foreach (['điểm', 'đường'] as $hauTo) {
+                    $cap = $theoTen->get($goc.' — '.$hauTo);
+                    if ($cap) {
+                        $lopId[] = $cap->id;
+                        $soDoiTuong += $cap->so_doi_tuong;
+                    }
+                }
+            } else {
+                $lopId[] = $l->id;
+                $soDoiTuong = $l->so_doi_tuong;
+            }
+            foreach ($lopId as $id) {
+                $daGhep[] = $id;
+            }
+
+            // Khung toạ độ cả tuyến, để bấm vào là bay (fitBounds) tới đúng khu vực
+            $bbox = DoiTuongHaTang::whereIn('lop_id', $lopId)
+                ->selectRaw('MIN(min_vi_do) nam, MAX(max_vi_do) bac, MIN(min_kinh_do) tay, MAX(max_kinh_do) dong')
+                ->first();
+
+            $tenTuyen = $this->tenTuyenHaTang($l->ten);
+
+            $tuyen[$tt][$kv][] = [
+                'ten' => $tenTuyen,
+                'lop_id' => $lopId,
+                'so_doi_tuong' => $soDoiTuong,
+                'con' => $this->xuatTuyenTrongLop($lopId, $tenTuyen),
+                // Coi cả tuyến là "đang hiện" chỉ khi mọi lớp thuộc tuyến (điểm + đường) đều hiện —
+                // nút con mắt ở menu Lưới điện bật/tắt đồng thời cả cặp để không bị lệch nhau.
+                'hien_thi' => $dangHien($lopId),
+                'gioi_han' => $bbox && $bbox->nam !== null
+                    ? [[(float) $bbox->nam, (float) $bbox->tay], [(float) $bbox->bac, (float) $bbox->dong]] : null,
+            ];
+        }
+
+        // Danh sách điểm (TBA, trạm nâng áp, nhà máy) theo tên, kèm toạ độ tâm để bấm vào là tới đúng vị trí,
+        // và tổng công suất cả nhóm (cộng công suất từng máy biến áp ghi trong tên, VD "(25+25MVA)" -> 50).
+        // Sắp theo số thứ tự ghi ở đầu tên ("1. TBA…", "2. TBA…") — so theo chuỗi thì "10." đứng trước "2.".
+        $danhSachDiem = function (array $dsLopId) use ($dangHien) {
+            $tongMva = 0;
+            $ds = DoiTuongHaTang::whereIn('lop_id', $dsLopId)
+                ->orderBy('id')
+                ->get(['id', 'ten', 'tam_vi_do', 'tam_kinh_do'])
+                ->sortBy(fn ($d) => preg_match('/^(\d+)\./', (string) $d->ten, $mSo) ? (int) $mSo[1] : $d->id)
+                ->map(function ($d) use (&$tongMva) {
+                    if (preg_match('/\(([\d+]+)\s*MVA\)/ui', (string) $d->ten, $m)) {
+                        $tongMva += array_sum(array_map('intval', explode('+', $m[1])));
+                    }
+
+                    return ['ten' => $d->ten ?: '(chưa đặt tên)', 'vi_do' => $d->tam_vi_do, 'kinh_do' => $d->tam_kinh_do];
+                })->values();
+
+            return ['ds' => $ds, 'tong_mva' => $tongMva, 'lop_id' => $dsLopId, 'hien_thi' => $dangHien($dsLopId)];
+        };
+
+        // Đường dây đấu nối: liệt kê từng tuyến (mỗi tuyến ứng với 1 nhà máy hoặc 1 cụm nhà máy). Lớp đấu nối
+        // riêng của 1 cụm (VD cụm thuỷ điện La Trọng) ghi thêm tên cụm dưới tên tuyến.
+        $danhSachDauNoi = function (array $dsLopId) use ($dangHien, $tenTheoId) {
+            $phuTheoLop = [];
+            foreach ($dsLopId as $id) {
+                $phu = trim(preg_replace(['/^đấu nối\s*/iu', '/\s*\((Quy hoạch|Hiện trạng)\)$/u'], '', $this->tenTuyenHaTang((string) $tenTheoId[$id])));
+                $phuTheoLop[$id] = in_array(mb_strtolower($phu), ['', 'nguồn điện'], true) ? null : mb_strtoupper(mb_substr($phu, 0, 1)).mb_substr($phu, 1);
+            }
+            $ds = DoiTuongHaTang::whereIn('lop_id', $dsLopId)->where('loai', 'duong_day')
+                ->orderBy('lop_id')->orderBy('id')
+                ->get(['id', 'lop_id', 'ten', 'min_vi_do', 'max_vi_do', 'min_kinh_do', 'max_kinh_do'])
+                ->map(fn ($d) => [
+                    'ten' => $d->ten ?: '(chưa đặt tên)',
+                    'phu' => $phuTheoLop[$d->lop_id] ?? null,
+                    'gioi_han' => $d->min_vi_do !== null
+                        ? [[(float) $d->min_vi_do, (float) $d->min_kinh_do], [(float) $d->max_vi_do, (float) $d->max_kinh_do]] : null,
+                ])->values();
+
+            return ['ds' => $ds, 'lop_id' => $dsLopId, 'hien_thi' => $dangHien($dsLopId)];
+        };
+
+        $nhanh = function (string $tt) use ($tuyen, $lopTba, $lopDauNoi, $lopTramNguon, $lopNhaMay, $danhSachDiem, $danhSachDauNoi) {
+            $theoKv = fn (array $ds) => collect($ds)->sortKeysDesc();
+
+            return [
+                'duong_day' => $theoKv($tuyen[$tt] ?? [])->map(fn ($ds, $kv) => ['kv' => $kv, 'ds' => $ds])->values(),
+                'tba' => $theoKv($lopTba[$tt] ?? [])->map(fn ($id, $kv) => ['kv' => $kv] + $danhSachDiem($id))->values(),
+                'dau_noi' => [
+                    'duong_day' => $theoKv($lopDauNoi[$tt] ?? [])->map(fn ($id, $kv) => ['kv' => $kv] + $danhSachDauNoi($id))->values(),
+                    'tram' => $danhSachDiem($lopTramNguon[$tt] ?? []),
+                    'nha_may' => $danhSachDiem($lopNhaMay[$tt] ?? []),
+                ],
+            ];
+        };
+
+        return response()->json(['hien_trang' => $nhanh('hien_trang'), 'quy_hoach' => $nhanh('quy_hoach')]);
+    }
+
+    /**
+     * Từng xuất tuyến trong 1 lớp (VD lớp "Sau TBA 110kV Tuyên Hóa" gồm XT 471, 472, 479…): chỉ lấy đối tượng
+     * đường đặt tên "Xuất tuyến…", "Mạch liên lạc…", "Tuyến…". Bỏ tên trạm ở cuối khi trùng tên lớp cho gọn,
+     * sắp theo số hiệu xuất tuyến. Lớp không có tên kiểu này (đoạn tuyến rời rạc) trả mảng rỗng.
+     */
+    private function xuatTuyenTrongLop(array $lopId, string $tenLop): array
+    {
+        $ds = DoiTuongHaTang::whereIn('lop_id', $lopId)->where('loai', 'duong_day')
+            ->where(fn ($q) => $q->where('ten', 'like', 'Xuất tuyến%')->orWhere('ten', 'like', 'Mạch liên lạc%')->orWhere('ten', 'like', 'Tuyến%'))
+            ->get(['id', 'ten', 'min_vi_do', 'max_vi_do', 'min_kinh_do', 'max_kinh_do']);
+        if ($ds->isEmpty() || $ds->count() > 40) {
+            return [];
+        }
+        $tram = preg_match('/^Sau TBA \S+\s+(.+)$/u', $tenLop, $m) ? $m[1] : null;
+
+        return $ds->map(function ($d) use ($tram) {
+            $ten = $tram ? preg_replace('/^(Xuất tuyến [\d, ]*\d) '.preg_quote($tram, '/').'(?=$| \()/u', '$1', $d->ten) : $d->ten;
+
+            return [
+                'id' => $d->id,
+                'ten' => $ten,
+                'so' => preg_match('/\d{3}/', $ten, $mSo) ? (int) $mSo[0] : 999,
+                'gioi_han' => $d->min_vi_do !== null
+                    ? [[(float) $d->min_vi_do, (float) $d->min_kinh_do], [(float) $d->max_vi_do, (float) $d->max_kinh_do]] : null,
+            ];
+        })->sortBy([['so', 'asc'], ['ten', 'asc']])->map(fn ($c) => array_diff_key($c, ['so' => 0]))->values()->all();
+    }
+
+    /** Rút gọn tên lớp thành tên tuyến/đoạn dễ đọc để hiển thị trong menu thống kê */
+    private function tenTuyenHaTang(string $ten): string
+    {
+        $s = preg_replace('/^(Đường dây|TBA)\s*\d+\s*kV(\s*—\s*(Hiện trạng|Quy hoạch))?\s*—\s*/u', '', $ten);
+        $s = trim(preg_replace('/\s*—\s*(điểm|đường)$/u', '', trim($s)), " —");
+
+        $nhan = [
+            'điểm' => 'Vị trí cột (dùng chung)',
+            'đường' => 'Tuyến (chưa đặt tên)',
+            'khác' => 'Đoạn khác (chưa đặt tên)',
+        ];
+
+        if (isset($nhan[$s])) {
+            return $nhan[$s];
+        }
+
+        return $s !== '' ? $s : 'Toàn bộ (gộp chung)';
+    }
+}

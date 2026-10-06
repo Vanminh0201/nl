@@ -1,0 +1,28 @@
+@php
+  // Biểu tượng nét mảnh dùng trong các trang báo cáo (lưới 24×24, màu theo chữ)
+  $duongVe = [
+    'lich' => '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/>',
+    'tuan' => '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17M7 14.5h10"/>',
+    'thang' => '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
+    'thong-ke' => '<path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/>',
+    'cai-dat' => '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+    'trai' => '<path d="M14.5 6l-6 6 6 6"/>',
+    'phai' => '<path d="M9.5 6l6 6-6 6"/>',
+    'xuong' => '<path d="M6 9.5l6 6 6-6"/>',
+    'in' => '<path d="M7 8V3.5h10V8"/><rect x="3.5" y="8" width="17" height="8.5" rx="1.8"/><path d="M7 13.5h10v7H7z"/>',
+    'tai' => '<path d="M12 3.5v11M7.5 10.5l4.5 4.5 4.5-4.5M4.5 16.5v3.5h15v-3.5"/>',
+    'don-vi' => '<path d="M4.5 20.5V5.5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v15M14.5 9.5h4a1 1 0 0 1 1 1v10M3 20.5h18M8 8.5h3M8 12h3M8 15.5h3"/>',
+    'cho' => '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    'xong' => '<circle cx="12" cy="12" r="8.5"/><path d="M8.3 12.3l2.6 2.6 4.9-5.2"/>',
+    'bo-sung' => '<path d="M9.5 14.5l-5-5 5-5"/><path d="M4.5 9.5h9a6 6 0 0 1 0 12h-2"/>',
+    'chua' => '<circle cx="12" cy="12" r="8.5"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/>',
+    'loai-hinh' => '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+    'trang-thai' => '<path d="M5.5 21V4M5.5 4.5h11l-2.2 4 2.2 4h-11"/>',
+    'bieu-tuong' => '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="9.5" r="1.8"/><path d="M20.5 15.5l-5-5-8.5 9"/>',
+    'tai-len' => '<path d="M12 15.5V4.5M7.5 9l4.5-4.5L16.5 9M4.5 16.5v3.5h15v-3.5"/>',
+    'san-luong' => '<path d="M13.2 3L5.5 13.5h5.8L10.5 21l8-10.5h-5.8z"/>',
+    'bieu-do' => '<path d="M4 20h16"/><path d="M5 16.5l4.5-5 3.5 3 6.5-7.5"/>',
+  ][$ten] ?? '';
+  $co = $co ?? 18;
+@endphp
+<svg class="bc-icon" viewBox="0 0 24 24" width="{{ $co }}" height="{{ $co }}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">{!! $duongVe !!}</svg>

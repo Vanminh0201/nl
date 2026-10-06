@@ -1,0 +1,142 @@
+<?php
+
+namespace App\Support;
+
+use Carbon\CarbonImmutable;
+
+/**
+ * Kỳ báo cáo tuần: "Tuần N" đánh số theo tuần ISO (thứ Hai → Chủ nhật) chứa ngày hiện tại, nhưng
+ * nội dung báo cáo cập nhật từ thứ Năm tuần trước đến thứ Năm tuần này (VD Tuần 39/2026 là
+ * 17/09 – 24/09/2026). Tính theo giờ Việt Nam vì máy chủ chạy UTC.
+ */
+final class KyBaoCao
+{
+    public const MUI_GIO = 'Asia/Ho_Chi_Minh';
+
+    public readonly CarbonImmutable $tuNgay;
+
+    public readonly CarbonImmutable $denNgay;
+
+    private function __construct(public readonly int $nam, public readonly int $tuan)
+    {
+        $this->denNgay = CarbonImmutable::now(self::MUI_GIO)->setISODate($nam, $tuan, 4)->startOfDay();
+        $this->tuNgay = $this->denNgay->subWeek();
+    }
+
+    public static function hienTai(): self
+    {
+        return self::chuaNgay(CarbonImmutable::now(self::MUI_GIO));
+    }
+
+    public static function chuaNgay(CarbonImmutable $ngay): self
+    {
+        return new self($ngay->isoWeekYear, $ngay->isoWeek);
+    }
+
+    public static function tuSo(int $nam, int $tuan): self
+    {
+        return new self($nam, $tuan);
+    }
+
+    /** Đọc mã dạng "2026-W39" từ URL/form; sai định dạng hoặc tuần không tồn tại thì trả null. */
+    public static function tuMa(?string $ma): ?self
+    {
+        if (! $ma || ! preg_match('/^(\d{4})-W(\d{1,2})$/', $ma, $m)) {
+            return null;
+        }
+        $ky = new self((int) $m[1], (int) $m[2]);
+
+        // setISODate tự tràn sang năm sau khi tuần vượt quá số tuần của năm (VD 2026-W60) — so bằng
+        // ngày thứ Năm cuối kỳ (luôn nằm trong đúng tuần ISO được đánh số)
+        return $ky->denNgay->isoWeekYear === $ky->nam && $ky->denNgay->isoWeek === $ky->tuan ? $ky : null;
+    }
+
+    public function ma(): string
+    {
+        return sprintf('%d-W%02d', $this->nam, $this->tuan);
+    }
+
+    public function ten(): string
+    {
+        return "Tuần {$this->tuan}/{$this->nam}";
+    }
+
+    public function khoang(): string
+    {
+        $dangTu = $this->tuNgay->year === $this->denNgay->year ? 'd/m' : 'd/m/Y';
+
+        return $this->tuNgay->format($dangTu).' – '.$this->denNgay->format('d/m/Y');
+    }
+
+    /** Năm dương lịch dùng cho số liệu giải ngân "năm" (năm của ngày thứ Năm cuối kỳ). */
+    public function namTaiChinh(): int
+    {
+        return $this->denNgay->year;
+    }
+
+    public function truoc(): self
+    {
+        return self::chuaNgay($this->denNgay->subWeek());
+    }
+
+    public function sau(): self
+    {
+        return self::chuaNgay($this->denNgay->addWeek());
+    }
+
+    public function laTuongLai(): bool
+    {
+        return $this->tuNgay->greaterThan(self::hienTai()->tuNgay);
+    }
+
+    public function laHienTai(): bool
+    {
+        return $this->ma() === self::hienTai()->ma();
+    }
+
+    public function bang(self $khac): bool
+    {
+        return $this->ma() === $khac->ma();
+    }
+
+    public function somHon(self $khac): bool
+    {
+        return $this->tuNgay->lessThan($khac->tuNgay);
+    }
+
+    /** Tuần bắt đầu áp dụng báo cáo tuần: quản trị chọn ở Cài đặt báo cáo, chưa chọn thì theo config */
+    public static function batDauApDung(): ?self
+    {
+        return self::tuMa(\App\Models\CaiDat::lay('bao_cao.tuan_bat_dau') ?: config('duan.bao_cao.tuan_bat_dau'));
+    }
+
+    /**
+     * Kỳ đầu tiên tài khoản phải báo cáo: muộn hơn giữa tuần bắt đầu áp dụng (cấu hình) và tuần
+     * tạo tài khoản — tuần trước đó không tính là "không nộp".
+     */
+    public static function batDauBaoCao(?\DateTimeInterface $taoTaiKhoan): self
+    {
+        $ky = self::batDauApDung() ?? self::hienTai();
+        if ($taoTaiKhoan) {
+            $kyTao = self::chuaNgay(CarbonImmutable::instance($taoTaiKhoan)->setTimezone(self::MUI_GIO));
+            if ($ky->somHon($kyTao)) {
+                $ky = $kyTao;
+            }
+        }
+
+        return $ky;
+    }
+
+    /** $soTuan kỳ liên tiếp kết thúc ở kỳ này, xếp từ cũ đến mới. */
+    public function ganDay(int $soTuan): array
+    {
+        $ds = [];
+        $ky = $this;
+        for ($i = 0; $i < $soTuan; $i++) {
+            array_unshift($ds, $ky);
+            $ky = $ky->truoc();
+        }
+
+        return $ds;
+    }
+}

@@ -1,0 +1,123 @@
+@extends('layouts.app')
+@section('tieu_de', 'Sản lượng điện tháng')
+
+@php
+  use App\Support\BaoCaoSanLuong as SL;
+  $kyCanBao = SL::kyCanBao();
+  $laKyCanBao = $ky->bang($kyCanBao);
+  $quaHan = SL::quaHan($ky);
+  $nhomKy = [];
+  foreach (array_reverse($dsKyChon) as $k) {
+    $nhomKy['Năm '.$k->nam][] = [
+      'url' => route('bao-cao.san-luong.index', ['ky' => $k->ma()]),
+      'ten' => 'Tháng '.$k->thang,
+      'phu' => 'Hạn gửi '.SL::hanNop($k)->format('d/m/Y'),
+      'chon' => $k->bang($ky),
+      'hien_tai' => $k->bang($kyCanBao),
+      'tinh_hinh' => $tinhHinhKy[$k->ma()] ?? null,
+    ];
+  }
+  $oKpi = [
+    ['k-tong', 'san-luong', $dem['van_hanh'], 'Dự án đang vận hành'],
+    ['k-xong', 'xong', $dem['co_so'], 'Đã gửi số liệu'],
+    ['k-chua', 'chua', $dem['chua'], 'Chưa gửi'],
+    ['k-bo-sung', 'don-vi', $dem['chua_gan'], 'Chưa gán tài khoản'],
+  ];
+  $phanTram = fn (?float $p) => $p === null ? null : ($p >= 0 ? '+' : '−').SL::so(abs($p), 1).'%';
+  $stt = 1;
+@endphp
+
+@section('noi_dung')
+<div class="pad bc-trang">
+  @include('bao-cao._tab', ['dangChon' => 'bao-cao.san-luong.index'])
+
+  <div class="bc-thanh-ky bc-ky">
+    @include('bao-cao._chon-ky', [
+      'ten' => 'Sản lượng '.mb_strtolower($ky->ten()),
+      'phu' => 'Hạn gửi '.SL::hanNop($ky)->format('d/m/Y'),
+      'truoc' => ['url' => route('bao-cao.san-luong.index', ['ky' => $ky->truoc()->ma()]), 'ten' => 'Tháng trước'],
+      'sau' => $laKyCanBao ? null : ['url' => route('bao-cao.san-luong.index', ['ky' => $ky->sau()->ma()]), 'ten' => 'Tháng sau'],
+      'nhom' => $nhomKy,
+    ])
+    @unless ($laKyCanBao)
+      <a href="{{ route('bao-cao.san-luong.index') }}" class="btn bc-nut">Về tháng cần báo cáo</a>
+    @endunless
+    <span class="bc-ky-gian"></span>
+    <a href="{{ route('bao-cao.san-luong.thong-ke', ['nam' => $ky->nam]) }}" class="btn primary bc-nut">@include('bao-cao._icon', ['ten' => 'bieu-do'])Thống kê sản lượng</a>
+  </div>
+
+  <div class="bc-kpi">
+    @foreach ($oKpi as [$lop, $icon, $soLuong, $nhan])
+      <div class="bc-kpi-o {{ $lop }} {{ $soLuong ? '' : 'rong' }}">
+        <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => $icon, 'co' => 21])</span>
+        <div class="bc-kpi-noi"><b>{{ $soLuong }}</b><span>{{ $nhan }}</span></div>
+      </div>
+    @endforeach
+    <div class="bc-kpi-o k-cho {{ $tong ? '' : 'rong' }}">
+      <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => 'bieu-do', 'co' => 21])</span>
+      <div class="bc-kpi-noi">
+        <b>{{ SL::so(SL::trieu($tong), 2) }}</b><span>Triệu kWh trong tháng</span>
+        @if ($soTruoc !== null || $soCungKy !== null)
+          <small class="sl-kpi-phu">
+            @if ($soTruoc !== null)<i class="{{ $soTruoc >= 0 ? 'sl-tang' : 'sl-giam' }}">{{ $phanTram($soTruoc) }}</i> so tháng trước @endif
+            @if ($soCungKy !== null)· <i class="{{ $soCungKy >= 0 ? 'sl-tang' : 'sl-giam' }}">{{ $phanTram($soCungKy) }}</i> so cùng kỳ @endif
+          </small>
+        @endif
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-hd"><h2>Tình hình gửi sản lượng điện {{ mb_strtolower($ky->ten()) }}</h2></div>
+    <div class="tablewrap" style="border:0;border-radius:0">
+      <table class="sl-bang">
+        <thead>
+          <tr>
+            <th class="giua">STT</th><th>Dự án</th><th>Chủ đầu tư (tài khoản)</th><th class="num">Công suất (MW)</th>
+            <th class="num">Sản lượng (kWh)</th><th class="num">{{ $ky->truoc()->ten() }}</th><th class="num">Tháng {{ $ky->thang }}/{{ $ky->nam - 1 }}</th>
+            <th>Ghi chú</th><th class="giua">Trạng thái</th>
+          </tr>
+        </thead>
+        <tbody>
+        @forelse ($nhom as $lh => $ds)
+          @php $tongNhom = $ds->sum(fn ($h) => $h['dong']?->daCo() ? $h['dong']->san_luong : 0); @endphp
+          <tr class="sl-nhom">
+            <td colspan="9">{{ $dsLoaiHinh[$lh]->ten ?? $lh }} · {{ $ds->count() }} dự án @if ($tongNhom)· {{ SL::so(SL::trieu($tongNhom), 2) }} triệu kWh @endif</td>
+          </tr>
+          @foreach ($ds as $h)
+            @php $d = $h['du_an']; $dong = $h['dong']; $tk = $d->taiKhoanChuDauTu; $co = $dong?->daCo(); @endphp
+            <tr>
+              <td class="giua">{{ $stt++ }}</td>
+              <td>
+                <a href="{{ route('bao-cao.san-luong.thong-ke', ['nam' => $ky->nam, 'du_an' => $d->id]) }}" class="sl-ten">{{ $d->ten }}</a>
+                @if ($d->trang_thai !== SL::TRANG_THAI_VAN_HANH)<div class="sl-phu">{{ $d->trang_thai }}</div>@endif
+              </td>
+              <td>@if ($tk){{ $tk->don_vi ?: $tk->name }}@else<span class="sl-phu">Chưa gán</span>@endif</td>
+              <td class="num">{{ SL::so($d->cong_suat_mw, 2) }}</td>
+              <td class="num"><b>{{ SL::so($co ? $dong->san_luong : null) }}</b></td>
+              <td class="num sl-cu">{{ SL::so($h['truoc']?->daCo() ? $h['truoc']->san_luong : null) }}</td>
+              <td class="num sl-cu">{{ SL::so($h['cung_ky']?->daCo() ? $h['cung_ky']->san_luong : null) }}</td>
+              <td>{{ $co ? $dong->ghi_chu : '' }}</td>
+              <td class="giua">
+                @if ($co)
+                  <span class="chip co">Đã gửi</span>
+                  <div class="sl-phu">{{ $dong->gui_luc->copy()->setTimezone(\App\Support\KyBaoCao::MUI_GIO)->format('d/m/Y H:i') }}</div>
+                @elseif (! $tk)
+                  <span class="chip" title="Gán tài khoản chủ đầu tư ở trang sửa dự án để chủ đầu tư báo cáo">Chưa gán tài khoản</span>
+                @elseif ($dong)
+                  <span class="chip cho">Đang soạn</span>
+                @else
+                  <span class="chip {{ $quaHan ? 'do' : '' }}">{{ $quaHan ? 'Quá hạn, chưa gửi' : 'Chưa gửi' }}</span>
+                @endif
+              </td>
+            </tr>
+          @endforeach
+        @empty
+          <tr><td colspan="9" class="trong">Chưa có dự án nguồn điện nào ở trạng thái "{{ SL::TRANG_THAI_VAN_HANH }}".</td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+@endsection

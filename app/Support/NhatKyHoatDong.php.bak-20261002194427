@@ -1,0 +1,268 @@
+<?php
+
+namespace App\Support;
+
+use App\Models\BaoCaoThang;
+use App\Models\BaoCaoThangDuAn;
+use App\Models\BaoCaoTuan;
+use App\Models\BaoCaoTuanDuAn;
+use App\Models\BieuTuong;
+use App\Models\CaiDat;
+use App\Models\DoiTuongHaTang;
+use App\Models\DuAn;
+use App\Models\DuAnHinhHoc;
+use App\Models\DuAnHoSoTep;
+use App\Models\DuAnVanBan;
+use App\Models\LoaiHinhDuAn;
+use App\Models\LopHaTang;
+use App\Models\NhatKy;
+use App\Models\TrangThaiDuAn;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Route;
+use Throwable;
+
+/**
+ * Ghi nhật ký hoạt động (trang Nhật ký). Trong 1 request, các thay đổi model (thêm/sửa/xoá) được gom lại
+ * rồi middleware GhiNhatKy ghi chung vào 1 dòng nhật ký cùng thao tác người dùng vừa làm. Chạy lệnh trên
+ * máy chủ (không qua trình duyệt) thì ghi 1 dòng tổng hợp khi lệnh kết thúc.
+ */
+class NhatKyHoatDong
+{
+    /** Model được theo dõi => [tên hiển thị, chỉ đếm số lượng (không ghi từng trường)] */
+    public const MO_HINH = [
+        DuAn::class => ['Dự án', false],
+        DuAnHinhHoc::class => ['Lớp bản đồ dự án', true],
+        DuAnHoSoTep::class => ['Tệp hồ sơ pháp lý (kiểu cũ)', false],
+        DuAnVanBan::class => ['Văn bản hồ sơ pháp lý', false],
+        BaoCaoTuan::class => ['Báo cáo tuần', false],
+        BaoCaoTuanDuAn::class => ['Nội dung báo cáo tuần của dự án', true],
+        BaoCaoThang::class => ['Báo cáo tháng', false],
+        BaoCaoThangDuAn::class => ['Nội dung báo cáo tháng của dự án', true],
+        LopHaTang::class => ['Lớp hạ tầng', false],
+        DoiTuongHaTang::class => ['Đối tượng lưới điện', false],
+        User::class => ['Tài khoản', false],
+        LoaiHinhDuAn::class => ['Loại hình dự án', false],
+        TrangThaiDuAn::class => ['Trạng thái dự án', false],
+        BieuTuong::class => ['Biểu tượng', false],
+        CaiDat::class => ['Cài đặt', false],
+    ];
+
+    public const KIEU = ['tao' => 'Thêm', 'sua' => 'Sửa', 'xoa' => 'Xoá'];
+
+    /** Trường không ghi vào nhật ký (tự sinh, suy ra từ trường khác hoặc nhạy cảm) */
+    private const BO_QUA = ['created_at', 'updated_at', 'deleted_at', 'password', 'remember_token', 'tam_vi_do', 'tam_kinh_do',
+        'min_vi_do', 'max_vi_do', 'min_kinh_do', 'max_kinh_do'];
+
+    /** Trường dữ liệu lớn: chỉ ghi là đã thay đổi */
+    private const TRUONG_LON = ['hinh_hoc', 'toa_do', 'thuoc_tinh', 'nhan_diem', 'quyen_xem'];
+
+    private const TEN_TRUONG = [
+        'ten' => 'Tên', 'name' => 'Tên', 'email' => 'Thư điện tử', 'vai_tro' => 'Vai trò', 'don_vi' => 'Đơn vị', 'da_duyet' => 'Đã duyệt',
+        'quyen_xem' => 'Quyền xem', 'bc_tuan' => 'Báo cáo tuần', 'bc_thang' => 'Báo cáo tháng', 'chu_dau_tu' => 'Chủ đầu tư',
+        'chu_dau_tu_id' => 'Tài khoản chủ đầu tư', 'loai_hinh' => 'Loại hình', 'dia_diem' => 'Địa điểm', 'trang_thai' => 'Trạng thái',
+        'von_dang_ky' => 'Vốn đăng ký (tỷ đồng)', 'dien_tich' => 'Diện tích (ha)', 'cong_suat' => 'Công suất', 'cong_suat_mw' => 'Công suất (MW)',
+        'san_luong_dien' => 'Sản lượng điện', 'tien_do' => 'Tiến độ (%)', 'ngay_khoi_cong' => 'Ngày khởi công', 'ngay_hoan_thanh' => 'Ngày hoàn thành',
+        'tien_do_van_hanh' => 'Tiến độ vận hành', 'so_van_ban' => 'Số văn bản', 'ngay_van_ban' => 'Ngày văn bản', 'vi_do' => 'Vĩ độ',
+        'kinh_do' => 'Kinh độ', 'ghi_chu' => 'Ghi chú', 'nguoi_cap_nhat_id' => 'Người cập nhật', 'hien_thi' => 'Hiển thị', 'mau' => 'Màu',
+        'bieu_tuong' => 'Biểu tượng', 'kich_thuoc' => 'Kích thước', 'dien_ap' => 'Điện áp (kV)', 'loai' => 'Loại', 'hinh_hoc' => 'Hình học',
+        'toa_do' => 'Toạ độ', 'thuoc_tinh' => 'Thuộc tính', 'nhan_diem' => 'Nhãn', 'lop_id' => 'Lớp', 'so_doi_tuong' => 'Số đối tượng',
+        'quy_hoach' => 'Quy hoạch', 'nhom' => 'Nhóm', 'ma' => 'Mã', 'thu_tu' => 'Thứ tự', 'tep' => 'Tệp', 'ten_tep' => 'Tên tệp', 'ho_so' => 'Hồ sơ',
+        'khoa' => 'Khoá', 'gia_tri' => 'Giá trị', 'nop_luc' => 'Thời điểm gửi', 'xu_ly_luc' => 'Thời điểm xử lý',
+        'nguoi_xu_ly_id' => 'Người xử lý', 'y_kien_xu_ly' => 'Ý kiến xử lý', 'nguon' => 'Nguồn', 'ten_file' => 'Tệp gốc',
+    ];
+
+    private array $thayDoi = [];
+
+    private bool $daHenGhiKhiDung = false;
+
+    /** Gom 1 thay đổi model (gọi từ observer GhiThayDoiModel) */
+    public function ghiNhanModel(Model $m, string $kieu): void
+    {
+        $cauHinh = self::MO_HINH[get_class($m)] ?? null;
+        if (! $cauHinh) {
+            return;
+        }
+        [$tenMoHinh, $chiDem] = $cauHinh;
+        $dong = ['mo_hinh' => $tenMoHinh, 'kieu' => $kieu, 'id' => $m->getKey(), 'ten' => self::tenDoiTuong($m)];
+        if ($kieu === 'sua') {
+            $truong = [];
+            foreach ($m->getChanges() as $khoa => $moi) {
+                if (in_array($khoa, self::BO_QUA, true)) {
+                    continue;
+                }
+                $truong[] = ['truong' => $this->tenTruong($khoa), 'truoc' => self::giaTri($khoa, $m->getOriginal($khoa)), 'sau' => self::giaTri($khoa, $moi)];
+            }
+            if (! $truong) {
+                return; // chỉ đổi thời điểm cập nhật
+            }
+            if (! $chiDem) {
+                $dong['truong'] = $truong;
+            }
+        }
+        if ($chiDem) {
+            unset($dong['ten']);
+        }
+        $this->thayDoi[] = $dong;
+
+        if (app()->runningInConsole() && ! $this->daHenGhiKhiDung) {
+            $this->daHenGhiKhiDung = true;
+            register_shutdown_function(fn () => $this->ghiThayDoiDongLenh());
+        }
+    }
+
+    /** Lấy (và xoá khỏi bộ đệm) các thay đổi model đã gom trong request */
+    public function layThayDoi(): array
+    {
+        $ds = $this->thayDoi;
+        $this->thayDoi = [];
+
+        return self::gonThayDoi($ds);
+    }
+
+    public function ghi(array $duLieu): void
+    {
+        try {
+            NhatKy::create($duLieu);
+        } catch (Throwable $e) {
+            Log::warning('Không ghi được nhật ký hoạt động', ['loi' => $e->getMessage()]);
+        }
+    }
+
+    /** Đăng nhập, đăng xuất, đăng nhập sai (gọi từ sự kiện xác thực) */
+    public function ghiDangNhap(string $hanhDong, ?User $u, array $chiTiet = []): void
+    {
+        $r = request();
+        $this->ghi([
+            'user_id' => $u?->id, 'ten_nguoi_dung' => $u?->name ?? ($chiTiet['email'] ?? null), 'vai_tro' => $u?->vai_tro,
+            'nhom' => 'dang_nhap', 'hanh_dong' => $hanhDong, 'chi_tiet' => $chiTiet ?: null,
+            'phuong_thuc' => $r->method(), 'duong_dan' => mb_substr('/'.ltrim($r->path(), '/'), 0, 500),
+            'ip' => $r->ip(), 'trinh_duyet' => mb_substr((string) $r->userAgent(), 0, 255),
+        ]);
+    }
+
+    /** Thay đổi dữ liệu do lệnh chạy trên máy chủ (không qua trình duyệt): 1 dòng tổng hợp khi lệnh kết thúc */
+    private function ghiThayDoiDongLenh(): void
+    {
+        $ds = $this->layThayDoi();
+        if (! $ds) {
+            return;
+        }
+        $this->ghi([
+            'ten_nguoi_dung' => 'Hệ thống (lệnh trên máy chủ)', 'nhom' => 'thay_doi', 'hanh_dong' => 'Cập nhật dữ liệu bằng lệnh trên máy chủ',
+            'doi_tuong' => self::moTaThayDoi($ds), 'chi_tiet' => ['thay_doi' => $ds],
+            'duong_dan' => mb_substr(implode(' ', array_map('basename', array_slice($_SERVER['argv'] ?? [], 0, 1))).' '.implode(' ', array_slice($_SERVER['argv'] ?? [], 1)), 0, 500),
+        ]);
+    }
+
+    /** Thay đổi loại "chỉ đếm" gộp thành 1 dòng số lượng; giới hạn 60 dòng chi tiết */
+    private static function gonThayDoi(array $ds): array
+    {
+        $dem = [];
+        $kq = [];
+        foreach ($ds as $d) {
+            if (! array_key_exists('ten', $d) && ! isset($d['truong'])) {
+                $k = $d['mo_hinh'].'|'.$d['kieu'];
+                $dem[$k] = ($dem[$k] ?? 0) + 1;
+
+                continue;
+            }
+            $kq[] = $d;
+        }
+        foreach ($dem as $k => $n) {
+            [$moHinh, $kieu] = explode('|', $k);
+            $kq[] = ['mo_hinh' => $moHinh, 'kieu' => $kieu, 'so_luong' => $n];
+        }
+        if (count($kq) > 60) {
+            $con = count($kq) - 60;
+            $kq = array_slice($kq, 0, 60);
+            $kq[] = ['mo_hinh' => 'Thay đổi khác', 'kieu' => 'sua', 'so_luong' => $con];
+        }
+
+        return $kq;
+    }
+
+    /** Mô tả ngắn các thay đổi, VD "Sửa Dự án: KCN Bang – Khu B; Thêm 44 Lớp bản đồ dự án" */
+    public static function moTaThayDoi(array $ds): string
+    {
+        $phan = [];
+        foreach (array_slice($ds, 0, 4) as $d) {
+            $phan[] = (self::KIEU[$d['kieu']] ?? $d['kieu']).' '.(isset($d['so_luong']) ? $d['so_luong'].' ' : '').mb_strtolower($d['mo_hinh'])
+                .(! empty($d['ten']) ? ': '.$d['ten'] : '');
+        }
+        if (count($ds) > 4) {
+            $phan[] = '…';
+        }
+
+        return mb_substr(implode('; ', $phan), 0, 500);
+    }
+
+    public static function tenDoiTuong(Model $m): string
+    {
+        foreach (['ten', 'name', 'ten_tep', 'ten_don_vi', 'khoa'] as $k) {
+            if (! empty($m->getAttribute($k)) && is_scalar($m->getAttribute($k))) {
+                $t = (string) $m->getAttribute($k);
+                if ($m instanceof BaoCaoTuan) {
+                    $t .= ' – tuần '.$m->tuan.'/'.$m->nam;
+                } elseif ($m instanceof BaoCaoThang) {
+                    $t .= ' – tháng '.$m->thang.'/'.$m->nam;
+                }
+
+                return mb_substr($t, 0, 300);
+            }
+        }
+
+        return '#'.$m->getKey();
+    }
+
+    /** Liên kết xem đối tượng (nếu có trang riêng và đối tượng còn tồn tại) */
+    public static function lienKet(Model $m): ?string
+    {
+        try {
+            return match (true) {
+                $m instanceof DuAn && ! $m->trashed() && $m->exists => route('du-an.show', $m),
+                $m instanceof BaoCaoTuan && $m->exists => route('bao-cao.show', $m->getKey()),
+                $m instanceof BaoCaoThang && $m->exists => route('bao-cao.thang.show', $m->getKey()),
+                $m instanceof LopHaTang && $m->exists => route('lop-ha-tang.doi-tuong', $m),
+                $m instanceof DoiTuongHaTang && $m->lop_id !== null && Route::has('lop-ha-tang.doi-tuong') => route('lop-ha-tang.doi-tuong', $m->lop_id),
+                $m instanceof DuAnHoSoTep && $m->exists => route('ho-so-tep.show', $m),
+                $m instanceof DuAnVanBan && $m->exists && $m->tep => route('van-ban.tep', $m),
+                default => null,
+            };
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function tenTruong(string $khoa): string
+    {
+        if (isset(DuAn::HO_SO_PHAP_LY[$khoa])) {
+            return 'Hồ sơ: '.DuAn::HO_SO_PHAP_LY[$khoa];
+        }
+
+        return self::TEN_TRUONG[$khoa] ?? $khoa;
+    }
+
+    private static function giaTri(string $khoa, mixed $v): ?string
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        if (in_array($khoa, self::TRUONG_LON, true)) {
+            return is_array($v) ? '(dữ liệu '.count($v).' phần tử)' : '(dữ liệu)';
+        }
+        if (is_bool($v)) {
+            return $v ? 'Có' : 'Không';
+        }
+        if ($v instanceof \DateTimeInterface) {
+            return $v->format('d/m/Y H:i');
+        }
+        if (is_array($v) || is_object($v)) {
+            $v = json_encode($v, JSON_UNESCAPED_UNICODE);
+        }
+        $v = (string) $v;
+
+        return mb_strlen($v) > 300 ? mb_substr($v, 0, 300).'…' : $v;
+    }
+}

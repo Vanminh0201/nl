@@ -1,0 +1,113 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\BieuTuong;
+use App\Models\DuAn;
+use App\Models\LoaiHinhDuAn;
+use App\Models\LopHaTang;
+use App\Models\TrangThaiDuAn;
+use App\Services\PhanTichHaTang;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class BanDoController extends Controller
+{
+    public function index()
+    {
+        return view('ban-do.index', [
+            'lop' => LopHaTang::withCount('doiTuong')->orderBy('ten')->get(),
+            'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
+            'dsTrangThai' => TrangThaiDuAn::danhSach(),
+            'dsBieuTuong' => BieuTuong::danhSach()->values(),
+        ]);
+    }
+
+    /** GeoJSON các dự án đang khớp bộ lọc, gồm điểm đại diện và mọi lớp đường/vùng/điểm phụ nếu có */
+    public function duAn(Request $request): JsonResponse
+    {
+        $features = DuAn::query()
+            ->loc($request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem']))
+            ->whereNotNull('vi_do')
+            ->with(['hinhHoc' => fn ($q) => $q->where('hien_thi', true)])
+            ->get()
+            ->flatMap(function (DuAn $d) {
+                $tt = [
+                    'id' => $d->id,
+                    'ten' => $d->ten,
+                    'chu_dau_tu' => $d->chu_dau_tu,
+                    'loai_hinh' => $d->ten_loai_hinh,
+                    'loai_hinh_ma' => $d->loai_hinh,
+                    'bieu_tuong' => $d->bieu_tuong_loai_hinh,
+                    'mau' => $d->mau,
+                    'trang_thai' => $d->trang_thai,
+                    'dia_diem' => $d->dia_diem,
+                    'von' => $d->von_dang_ky,
+                    'url' => route('du-an.show', $d),
+                ];
+
+                $ds = [];
+
+                // Đã có lớp đường/vùng thật thì thôi không chấm thêm điểm đại diện cho rối bản đồ,
+                // chỉ khi dự án chỉ có mỗi toạ độ đơn (không đường không vùng) mới cần chấm điểm.
+                if (! $d->co_hinh_dang) {
+                    $ds[] = [
+                        'type' => 'Feature',
+                        'properties' => $tt + ['vai_tro' => 'diem'],
+                        'geometry' => ['type' => 'Point', 'coordinates' => [$d->kinh_do, $d->vi_do]],
+                    ];
+                }
+
+                foreach ($d->hinhHoc as $h) {
+                    // toa_do lưu [lat, lng], GeoJSON cần [lng, lat]
+                    $toa = array_map(fn ($p) => [$p[1], $p[0]], $h->toa_do);
+                    $hinhHocGeo = match ($h->loai) {
+                        // Nhiều điểm gộp thành 1 lớp (VD cột/mốc dọc tuyến) dùng MultiPoint để
+                        // vẫn ẩn/hiện cả nhóm bằng 1 thao tác, thay vì tách hàng trăm lớp riêng.
+                        'diem' => count($toa) > 1
+                            ? ['type' => 'MultiPoint', 'coordinates' => $toa]
+                            : ['type' => 'Point', 'coordinates' => $toa[0]],
+                        'duong' => ['type' => 'LineString', 'coordinates' => $toa],
+                        'vung' => ['type' => 'Polygon', 'coordinates' => [[...$toa, $toa[0]]]],
+                    };
+
+                    $ds[] = [
+                        'type' => 'Feature',
+                        'properties' => $tt + [
+                            'vai_tro' => 'lop',
+                            'lop_loai' => $h->loai,
+                            'lop_ten' => $h->ten,
+                            'lop_bieu_tuong' => $h->bieu_tuong ?? 'diem_moc',
+                            'lop_nhan' => $h->nhan_diem,
+                        ],
+                        'geometry' => $hinhHocGeo,
+                    ];
+                }
+
+                return $ds;
+            })
+            ->values();
+
+        return response()->json(['type' => 'FeatureCollection', 'features' => $features]);
+    }
+
+    /** GeoJSON hạ tầng lưới điện trong khung nhìn hiện tại */
+    public function haTang(Request $request, PhanTichHaTang $phanTich): JsonResponse
+    {
+        $request->validate(['bbox' => ['required', 'string']]);
+
+        $bbox = array_map('floatval', explode(',', $request->query('bbox')));
+        if (count($bbox) !== 4) {
+            return response()->json(['message' => 'Tham số bbox phải gồm 4 giá trị.'], 422);
+        }
+
+        $gioiHan = (int) config('duan.gioi_han_ha_tang', 4000);
+        $features = $phanTich->trongKhungNhin($bbox, $gioiHan);
+
+        return response()->json([
+            'type' => 'FeatureCollection',
+            'features' => $features,
+            'bi_cat' => count($features) >= $gioiHan,
+        ]);
+    }
+}

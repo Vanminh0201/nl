@@ -1,0 +1,317 @@
+/* Bản đồ chi tiết riêng của 1 dự án (trang du-an/{id}) — khác bản đồ chung (chỉ 1 điểm đại diện
+   cho mỗi dự án): vẽ đủ các lớp hình học của dự án (ranh giới, tuyến cáp, đường nội bộ, vị trí
+   tua-bin…) gom theo nhóm, bật/tắt và phóng tới từng nhóm ở sidebar, kèm lưới điện khu vực.
+   Dữ liệu nạp qua window.CHI_TIET_DU_AN (resources/views/du-an/chi-tiet.blade.php). */
+(function () {
+  'use strict';
+
+  var cfg = window.CHI_TIET_DU_AN;
+  var bd = cfg.banDo;
+  // Màu cho các nhóm đường/vùng — tươi, dễ thấy trên ảnh vệ tinh; đường có thêm viền tối bên dưới
+  // nên vẫn đọc được trên nền "Đường phố" sáng màu.
+  var BANG_MAU = ['#ffd23f', '#35d0ff', '#ff5d8f', '#7cfc5a', '#ff9f1c', '#c084fc', '#00e5b0', '#ffffff'];
+
+  /* ---------- ghi nhớ tuỳ chọn (lớp nền, nhãn, lưới điện, khung bên) ---------- */
+  var KHOA_NHO = 'qlda.chiTietDuAn';
+  var nho = {};
+  try { nho = JSON.parse(localStorage.getItem(KHOA_NHO)) || {}; } catch (e) { nho = {}; }
+  function ghiNho(khoa, giaTri) {
+    nho[khoa] = giaTri;
+    try { localStorage.setItem(KHOA_NHO, JSON.stringify(nho)); } catch (e) { /* trình duyệt chặn lưu — bỏ qua */ }
+  }
+
+  function thoat(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function so(v, le) {
+    return v.toLocaleString('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: le });
+  }
+
+  /* ---------- bản đồ + lớp nền ---------- */
+  var map = L.map('map');
+  if (window.ViTriCuaToi) window.ViTriCuaToi.gan(map, { position: 'topleft' });
+  map.createPane('luoiDien').style.zIndex = 350; // dưới lớp của dự án (overlayPane 400)
+  var lopNen = null;
+  var chonNen = document.getElementById('ctNen');
+
+  function datNen(ma) {
+    var n = bd.lop_nen[ma] || bd.lop_nen.ve_tinh;
+    if (lopNen) map.removeLayer(lopNen);
+    lopNen = L.tileLayer(n.tile, { maxZoom: 18, attribution: n.ghi_nguon }).addTo(map);
+  }
+  if (nho.nen && bd.lop_nen[nho.nen]) chonNen.value = nho.nen;
+  datNen(chonNen.value);
+  chonNen.addEventListener('change', function () { datNen(chonNen.value); ghiNho('nen', chonNen.value); });
+
+  /* ---------- đo chiều dài/diện tích để ghi cạnh tên nhóm ---------- */
+  function chieuDai(toa) {
+    var m = 0;
+    for (var i = 1; i < toa.length; i++) m += L.latLng(toa[i - 1]).distanceTo(L.latLng(toa[i]));
+    return m;
+  }
+
+  // Diện tích đa giác trên mặt cầu (m²) — cùng công thức L.GeometryUtil.geodesicArea của Leaflet.draw
+  function dienTich(toa) {
+    var R = 6378137, d = Math.PI / 180, s = 0, n = toa.length;
+    for (var i = 0; i < n; i++) {
+      var p1 = toa[i], p2 = toa[(i + 1) % n];
+      s += (p2[1] - p1[1]) * d * (2 + Math.sin(p1[0] * d) + Math.sin(p2[0] * d));
+    }
+    return Math.abs(s * R * R / 2);
+  }
+
+  /* ---------- các nhóm lớp của dự án ---------- */
+  var dsNhom = [];
+  var hienNhan = document.getElementById('ctHienNhan'); // chỉ có khi dự án có nhóm điểm
+  if (hienNhan) hienNhan.checked = !! nho.nhan;
+
+  function nhanDiem(layer, chu) {
+    layer.chuNhan = chu; // giữ chữ gốc để gắn lại khi bật/tắt "Hiện tên" (nội dung tooltip đã mã hoá HTML)
+    layer.bindTooltip(thoat(chu), { direction: 'top', permanent: !! (hienNhan && hienNhan.checked), className: 'nhan-ha-tang', offset: [0, -4] });
+  }
+
+  // Biểu tượng điểm to dần theo mức phóng: xem toàn cảnh không chồng lấp, phóng gần thấy rõ. Dự án
+  // đang vận hành thì biểu tượng chuyển động như bản đồ chung (cánh quạt tua-bin quay…).
+  var LOP_TRANG_THAI = cfg.dangVanHanh ? 'dang-van-hanh' : (cfg.chuaVanHanh ? 'chua-van-hanh' : '');
+  var dsBieuTuong = [];
+  var coHienTai = 22;
+
+  function coTheoZoom(z) {
+    return z >= 14 ? 34 : (z >= 12 ? 28 : 22);
+  }
+
+  function taoIcon(ma, mau, co) {
+    var ic = BieuTuongLoaiHinh.divIcon(ma, mau, co, LOP_TRANG_THAI);
+    ic.options.tooltipAnchor = [0, -Math.round(co / 2)]; // nhãn tên luôn nằm ngay trên biểu tượng
+    return ic;
+  }
+
+  /** Marker biểu tượng đổi cỡ theo mức phóng; $them: cỡ cộng thêm (điểm đại diện to hơn các điểm khác) */
+  function markerBieuTuong(p, ma, mau, them) {
+    var m = L.marker(p, { icon: taoIcon(ma, mau, coHienTai + (them || 0)), zIndexOffset: them ? 1000 : 0 });
+    m.btMa = ma;
+    m.btMau = mau;
+    m.btThem = them || 0;
+    dsBieuTuong.push(m);
+    return m;
+  }
+
+  function capNhatCo() {
+    var co = coTheoZoom(map.getZoom());
+    if (co === coHienTai) return;
+    coHienTai = co;
+    dsBieuTuong.forEach(function (m) { m.setIcon(taoIcon(m.btMa, m.btMau, co + m.btThem)); });
+  }
+
+  var demMau = 0;
+  cfg.nhom.forEach(function (n) {
+    var lop = L.featureGroup();
+    // Nhóm có màu riêng (VD màu quy ước loại đất) giữ màu đó, còn lại lấy lần lượt trong bảng màu
+    var mau = n.loai === 'diem' ? cfg.mau : (n.mau || BANG_MAU[demMau++ % BANG_MAU.length]);
+    var soDiem = 0, tongDai = 0, tongDienTich = 0;
+
+    n.doi_tuong.forEach(function (d) {
+      var toa = d.toa_do || [];
+      if (! toa.length) return;
+      if (n.loai === 'diem') {
+        // Nhóm quá đông (VD hàng trăm điểm cột) vẽ chấm tròn cho nhẹ, ít thì dùng biểu tượng
+        var nhieu = toa.length > 150;
+        toa.forEach(function (p, i) {
+          var m = nhieu
+            ? L.circleMarker(p, { radius: 4, color: '#fff', weight: 1, fillColor: mau, fillOpacity: 0.95 })
+            : markerBieuTuong(p, n.bieu_tuong || 'diem_moc', mau);
+          nhanDiem(m, (d.nhan && d.nhan[i]) || n.ten);
+          m.addTo(lop);
+        });
+        soDiem += toa.length;
+      } else if (n.loai === 'duong') {
+        L.polyline(toa, { color: '#1b1f23', weight: 5.5, opacity: 0.45, interactive: false }).addTo(lop);
+        L.polyline(toa, { color: mau, weight: 3 })
+          .bindTooltip(thoat((d.nhan && d.nhan[0]) || d.ten || n.ten), { sticky: true, className: 'nhan-ha-tang' }).addTo(lop);
+        tongDai += chieuDai(toa);
+        soDiem++;
+      } else {
+        // Vùng tô màu theo loại đất thì nền đậm, viền mảnh để đọc như bản đồ quy hoạch sử dụng đất
+        L.polygon(toa, n.mau
+          ? { color: mau, weight: 1.2, fillColor: mau, fillOpacity: 0.38 }
+          : { color: mau, weight: 2.5, fillColor: mau, fillOpacity: 0.16 })
+          .bindTooltip(thoat((d.nhan && d.nhan[0]) || d.ten || n.ten), { sticky: true, className: 'nhan-ha-tang' }).addTo(lop);
+        tongDienTich += dienTich(toa);
+        soDiem++;
+      }
+    });
+
+    var meta = n.loai === 'diem' ? so(soDiem, 0) + ' điểm'
+      : n.loai === 'duong' ? so(soDiem, 0) + ' tuyến · ' + so(tongDai / 1000, 2) + ' km'
+        : so(soDiem, 0) + ' vùng · ' + so(tongDienTich / 10000, 2) + ' ha';
+
+    dsNhom.push({ ten: n.ten, loai: n.loai, bieuTuong: n.bieu_tuong, mau: mau, lop: lop, meta: meta, hien: n.hien });
+  });
+
+  // Điểm đại diện (điểm hiện ở bản đồ chung) chỉ vẽ khi dự án chưa có dữ liệu chi tiết — đã có vị
+  // trí tua-bin, ranh giới… thì bản đồ chi tiết không cần thêm điểm đại diện.
+  if (! cfg.nhom.length && cfg.viDo !== null && cfg.kinhDo !== null) {
+    var lopDaiDien = L.featureGroup();
+    var mDaiDien = markerBieuTuong([cfg.viDo, cfg.kinhDo], cfg.bieuTuong, cfg.mau, 8);
+    mDaiDien.bindTooltip(thoat(cfg.ten), { direction: 'top', offset: [0, -4], className: 'nhan-ha-tang' }).addTo(lopDaiDien);
+    dsNhom.unshift({ ten: 'Điểm đại diện dự án', loai: 'dai_dien', bieuTuong: cfg.bieuTuong, mau: cfg.mau, lop: lopDaiDien,
+      meta: 'Vị trí hiện trên bản đồ chung', hien: true });
+  }
+
+  /* ---------- danh sách lớp ở sidebar ---------- */
+  var khungLop = document.getElementById('ctLop');
+
+  function mauNhom(n) {
+    if (n.loai === 'diem' || n.loai === 'dai_dien') return BieuTuongLoaiHinh.badgeHtml(n.bieuTuong || 'diem_moc', n.mau, 20);
+    if (n.loai === 'duong') return '<i class="ct-mau-duong" style="background:' + n.mau + '"></i>';
+    return '<i class="ct-mau-vung" style="border-color:' + n.mau + ';background:' + n.mau + '33"></i>';
+  }
+
+  dsNhom.forEach(function (n, i) {
+    var dong = document.createElement('div');
+    dong.className = 'ct-lop-muc';
+    dong.innerHTML = '<label><input type="checkbox"' + (n.hien ? ' checked' : '') + '>'
+      + '<span class="ct-mau">' + mauNhom(n) + '</span>'
+      + '<span class="ct-lop-ten">' + thoat(n.ten) + '<small>' + thoat(n.meta) + '</small></span></label>'
+      + '<button type="button" class="ct-toi" title="Phóng tới trên bản đồ">'
+      + '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+      + '<circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/><line x1="11" y1="8.5" x2="11" y2="13.5"/><line x1="8.5" y1="11" x2="13.5" y2="11"/></svg></button>';
+    var o = dong.querySelector('input');
+    o.addEventListener('change', function () {
+      if (o.checked) n.lop.addTo(map); else map.removeLayer(n.lop);
+    });
+    dong.querySelector('.ct-toi').addEventListener('click', function () {
+      if (! o.checked) { o.checked = true; n.lop.addTo(map); }
+      phongToi(n.lop.getBounds());
+    });
+    if (n.hien) n.lop.addTo(map);
+    khungLop.appendChild(dong);
+  });
+
+  if (hienNhan) hienNhan.addEventListener('change', function () {
+    ghiNho('nhan', hienNhan.checked);
+    dsNhom.forEach(function (n) {
+      if (n.loai !== 'diem') return;
+      n.lop.eachLayer(function (m) {
+        if (m.chuNhan === undefined) return;
+        m.unbindTooltip();
+        nhanDiem(m, m.chuNhan);
+      });
+    });
+  });
+
+  /* ---------- phóng vừa dự án ---------- */
+  // maxZoom 16: dự án chỉ có 1 điểm đại diện thì fitBounds tự phóng hết cỡ (18), vượt quá độ phân
+  // giải ảnh vệ tinh Esri thực có ở nhiều vùng nông thôn, hiện "Map data not available".
+  function phongToi(b) {
+    if (b && b.isValid()) map.fitBounds(b, { padding: [40, 40], maxZoom: 16 });
+  }
+
+  function gioiHanDuAn() {
+    var b = null;
+    dsNhom.forEach(function (n) {
+      if (! map.hasLayer(n.lop)) return;
+      var g = n.lop.getBounds();
+      if (g.isValid()) b = b ? b.extend(g) : L.latLngBounds(g.getSouthWest(), g.getNorthEast());
+    });
+    return b;
+  }
+
+  function toanCanh() {
+    var b = gioiHanDuAn();
+    if (b) phongToi(b);
+    else map.fitBounds(bd.gioi_han);
+  }
+  toanCanh();
+  capNhatCo();
+  map.on('zoomend', capNhatCo);
+  document.getElementById('ctToanCanh').addEventListener('click', toanCanh);
+
+  /* ---------- lưới điện khu vực (cùng dữ liệu lớp hạ tầng của bản đồ chung) ---------- */
+  var oLuoi = document.getElementById('ctLuoiDien');
+  var lopLuoi = L.layerGroup().addTo(map);
+  var hen = null, lanTai = 0;
+
+  function mauDienAp(kv) {
+    if (kv >= 500) return '#c0392b';
+    if (kv >= 220) return '#d97b2a';
+    if (kv >= 110) return '#2f6fae';
+    if (kv >= 22) return '#6f8390';
+    return '#8a8f94';
+  }
+
+  function canhBao(chu) {
+    var el = document.getElementById('canhBao');
+    el.textContent = chu;
+    el.style.display = chu ? 'block' : 'none';
+  }
+
+  function taiLuoi() {
+    lopLuoi.clearLayers();
+    canhBao('');
+    if (! oLuoi || ! oLuoi.checked) return;
+    if (map.getZoom() < 9) { canhBao('Phóng to thêm để xem lưới điện khu vực.'); return; }
+
+    var b = map.getBounds();
+    var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(function (v) { return v.toFixed(5); }).join(',');
+    var lan = ++lanTai;
+    fetch(cfg.haTang + '?bbox=' + bbox, { headers: { Accept: 'application/json' } })
+      .then(function (r) { if (! r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (gj) {
+        if (lan !== lanTai || ! oLuoi.checked) return; // đã kéo bản đồ đi chỗ khác hoặc tắt lớp
+        L.geoJSON(gj, {
+          pane: 'luoiDien',
+          // Bỏ điểm cột/tháp cho gọn, chỉ giữ đường dây, trạm biến áp và nhà máy điện
+          filter: function (f) {
+            var laDiem = f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint';
+            return ! laDiem || f.properties.loai === 'tram' || f.properties.loai === 'nha_may';
+          },
+          style: function (f) {
+            var c = f.properties.mau || mauDienAp(f.properties.kv);
+            return f.properties.quy_hoach
+              ? { color: c, weight: 2, opacity: 0.75, dashArray: '7,5', fillColor: c, fillOpacity: 0.1 }
+              : { color: c, weight: 2.4, opacity: 0.95, fillColor: c, fillOpacity: 0.2 };
+          },
+          pointToLayer: function (f, ll) {
+            return L.circleMarker(ll, { pane: 'luoiDien', radius: 5, color: '#fff', weight: 1,
+              fillColor: f.properties.mau || mauDienAp(f.properties.kv), fillOpacity: 0.95 });
+          },
+          onEachFeature: function (f, layer) {
+            var p = f.properties;
+            var laDuong = f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString';
+            var nhan = laDuong ? (p.lop_ten || p.ten) : p.ten;
+            if (nhan) layer.bindTooltip(thoat(nhan) + (p.kv ? ' — ' + p.kv + ' kV' : ''), { sticky: true, className: 'nhan-ha-tang' });
+          },
+        }).addTo(lopLuoi);
+        if (gj.bi_cat) canhBao('Khu vực có quá nhiều đối tượng lưới điện, chỉ hiện một phần — phóng to thêm để xem đủ.');
+      })
+      .catch(function () { if (lan === lanTai) canhBao('Không tải được lưới điện khu vực.'); });
+  }
+
+  if (oLuoi) {
+    oLuoi.checked = !! nho.luoi;
+    oLuoi.addEventListener('change', function () { ghiNho('luoi', oLuoi.checked); taiLuoi(); });
+    map.on('moveend', function () { clearTimeout(hen); hen = setTimeout(taiLuoi, 250); });
+    taiLuoi();
+  }
+
+  /* ---------- thu gọn/mở khung thông tin ---------- */
+  var ben = document.getElementById('ctBen');
+  var nutMo = document.getElementById('ctMo');
+  function datKhung(thuGon) {
+    ben.classList.toggle('thu-gon', thuGon);
+    nutMo.classList.toggle('hien', thuGon);
+    ghiNho('thuGon', thuGon);
+    setTimeout(function () { map.invalidateSize(); }, 220);
+  }
+  document.getElementById('ctDong').addEventListener('click', function () { datKhung(true); });
+  nutMo.addEventListener('click', function () { datKhung(false); });
+  if (nho.thuGon) datKhung(true);
+
+  /* ---------- biểu tượng loại hình ở đầu sidebar ---------- */
+  var icon = document.querySelector('.ct-loai-icon');
+  if (icon) icon.innerHTML = BieuTuongLoaiHinh.badgeHtml(icon.dataset.bieuTuong, icon.dataset.mau, 20);
+})();

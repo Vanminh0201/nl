@@ -1,0 +1,199 @@
+@extends('layouts.app')
+@section('tieu_de', $duAn->ten)
+
+@push('dau_trang')
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+@endpush
+
+@section('noi_dung')
+<div class="pad" style="display:flex;flex-direction:column;gap:14px">
+  <div class="sheet">
+    <div class="sheet-hd">
+      <div style="font-size:12px;font-weight:600;color:{{ $duAn->mau }}">{{ $duAn->ten_loai_hinh }}</div>
+      <h2 style="margin:3px 0 9px">{{ $duAn->ten }}</h2>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <a href="{{ route('du-an.index') }}" class="btn">Về danh sách</a>
+        @if (auth()->user()->duocSua())
+          <a href="{{ route('du-an.edit', $duAn) }}" class="btn primary">Sửa</a>
+        @endif
+        @if (auth()->user()->duocXoa())
+          <form method="post" action="{{ route('du-an.destroy', $duAn) }}"
+                onsubmit="return confirm('Xoá dự án {{ $duAn->ten }}?')">
+            @csrf @method('delete')
+            <button class="btn danger">Xoá</button>
+          </form>
+        @endif
+      </div>
+    </div>
+    <div class="sheet-bd">
+      <dl>
+        @foreach ([
+          'Chủ đầu tư' => $duAn->chu_dau_tu,
+          'Tài khoản chủ đầu tư' => $duAn->taiKhoanChuDauTu?->name,
+          'Địa điểm' => $duAn->dia_diem,
+          'Trạng thái' => $duAn->trang_thai,
+          'Vốn đăng ký' => $duAn->von_dang_ky ? number_format($duAn->von_dang_ky, 2, ',', '.').' tỷ đồng' : null,
+          'Diện tích' => $duAn->dien_tich ? number_format($duAn->dien_tich, 2, ',', '.').' ha' : null,
+          'Công suất' => $duAn->cong_suat,
+          'Sản lượng điện' => $duAn->san_luong_dien ? number_format($duAn->san_luong_dien, 0, ',', '.').' kWh/năm' : null,
+          'Khởi công' => $duAn->ngay_khoi_cong?->format('d/m/Y'),
+          'Hoàn thành' => $duAn->tien_do_van_hanh ?: $duAn->ngay_hoan_thanh?->format('d/m/Y'),
+        ] as $nhan => $gt)
+          @if ($gt)
+            <div class="row"><dt>{{ $nhan }}</dt><dd>{{ $gt }}</dd></div>
+          @endif
+        @endforeach
+
+        @if ($duAn->vanBan->isNotEmpty())
+          <div class="row"><dt>Văn bản chủ trương đầu tư</dt>
+            <dd>
+              <ul style="margin:0;padding-left:18px">
+                @foreach ($duAn->vanBan as $vb)
+                  <li style="margin-bottom:5px">
+                    @if ($vb->loai)<strong>{{ $vb->loai }}</strong> — @endif
+                    {{ $vb->so_van_ban ?: 'Chưa có số' }}@if ($vb->ngay_van_ban) ngày {{ $vb->ngay_van_ban->format('d/m/Y') }}@endif
+                    @if ($vb->tep)
+                      <a href="{{ $vb->tep_url }}" target="_blank" rel="noopener" class="btn sm" style="margin-left:7px">Xem văn bản</a>
+                    @endif
+                  </li>
+                @endforeach
+              </ul>
+            </dd>
+          </div>
+        @endif
+
+        @if ($duAn->tien_do !== null)
+          <div class="row"><dt>Tiến độ</dt>
+            <dd>{{ $duAn->tien_do }}%<div class="tiendo"><i style="width:{{ min(100, $duAn->tien_do) }}%"></i></div></dd>
+          </div>
+        @endif
+
+        <div class="row"><dt>Hồ sơ pháp lý</dt><dd><div class="chips">
+          @foreach (App\Models\DuAn::HO_SO_PHAP_LY as $cot => $nhan)
+            <span class="chip {{ $duAn->$cot ? 'co' : '' }}">{{ $nhan }}{{ $duAn->$cot ? ' ✓' : '' }}</span>
+          @endforeach
+        </div></dd></div>
+
+        <div class="row"><dt>Toạ độ</dt>
+          <dd>{{ $duAn->vi_do ? number_format($duAn->vi_do, 5).', '.number_format($duAn->kinh_do, 5) : 'Chưa gắn toạ độ' }}</dd>
+        </div>
+
+        @if ($duAn->hinhHoc->count())
+          <div class="row"><dt>Lớp hình học</dt>
+            <dd>
+              @foreach ($duAn->hinhHoc as $h)
+                <div>{{ App\Models\DuAnHinhHoc::LOAI[$h->loai] }}@if ($h->ten) — {{ $h->ten }}@endif
+                  ({{ count($h->toa_do) }} {{ $h->loai === 'diem' ? 'điểm' : ($h->loai === 'duong' ? 'điểm tuyến' : 'đỉnh') }})
+                  @unless ($h->hien_thi) <span class="hint">— đang ẩn</span> @endunless
+                </div>
+              @endforeach
+            </dd>
+          </div>
+        @endif
+
+
+        @if ($duAn->ghi_chu)
+          <div class="row"><dt>Ghi chú</dt><dd>{!! nl2br(e($duAn->ghi_chu)) !!}</dd></div>
+        @endif
+
+        <div class="row"><dt>Cập nhật</dt>
+          <dd>{{ $duAn->updated_at->format('d/m/Y H:i') }}@if ($duAn->nguoiCapNhat) — {{ $duAn->nguoiCapNhat->name }}@endif</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  @if ($mucBaoCao)
+    @php $bc = $mucBaoCao->baoCao; @endphp
+    <div class="sheet">
+      <div class="sheet-hd" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <h2 style="font-size:14px">Báo cáo tuần gần nhất — {{ $bc->ky()->ten() }}
+          <span class="hint" style="font-weight:400">({{ $bc->ky()->khoang() }}, nộp {{ $bc->gio('nop_luc') }})</span>
+          <span class="chip {{ $bc->lop_chip }}" style="font-weight:400">{{ $bc->ten_trang_thai }}</span>
+        </h2>
+        <a href="{{ route('bao-cao.show', $bc) }}" class="btn sm">Xem toàn văn báo cáo</a>
+      </div>
+      <div class="sheet-bd">
+        <dl style="margin:0">
+          @foreach ($mucBaoCao->cacMuc($bc->ky()->namTaiChinh()) as $muc)
+            <div class="row"><dt>{{ rtrim(preg_replace('/^\d+\.\s*/', '', $muc['tieu_de']), ':') }}</dt>
+              <dd style="white-space:pre-line">{{ implode("\n", $muc['dong']) }}</dd></div>
+          @endforeach
+        </dl>
+      </div>
+    </div>
+  @endif
+
+  @if ($duAn->vi_do)
+    <div class="sheet">
+      <div class="sheet-hd"><h2 style="font-size:14px">Vị trí</h2></div>
+      <div style="padding:12px"><div id="mapChiTiet" style="height:700px;border-radius:var(--radius)"></div></div>
+    </div>
+  @endif
+</div>
+@endsection
+
+@push('cuoi_trang')
+@if ($duAn->vi_do)
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+  window.DS_BIEU_TUONG = @json($dsBieuTuong);
+</script>
+<script src="{{ asset('js/bieu-tuong.js') }}?v={{ filemtime(public_path('js/bieu-tuong.js')) }}"></script>
+<script>
+(function () {
+  var cfg = @json(config('duan.ban_do'));
+  var lat = {{ $duAn->vi_do }}, lng = {{ $duAn->kinh_do }};
+  var map = L.map('mapChiTiet').setView([lat, lng], 13);
+  L.tileLayer(cfg.tile, { maxZoom: 18, attribution: cfg.ghi_nguon }).addTo(map);
+  var mau = @json($duAn->mau);
+  var coHinhDang = @json($duAn->co_hinh_dang);
+  var gioiHan = null;
+
+  function monRong(b) { gioiHan = gioiHan ? gioiHan.extend(b) : b; }
+
+  function thoatHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  if (!coHinhDang) {
+    var diem = L.marker([lat, lng], { icon: BieuTuongLoaiHinh.divIcon(@json($duAn->bieu_tuong_loai_hinh), mau, 32) })
+      .addTo(map).bindTooltip(thoatHtml(@json($duAn->ten)));
+    monRong(diem.getLatLng().toBounds(10));
+  }
+
+  @foreach ($duAn->hinhHoc->where('hien_thi', true) as $h)
+    (function () {
+      var toa = @json($h->toa_do);
+      @if ($h->loai === 'diem')
+        var nhanDiem = @json($h->nhan_diem);
+        var lop = L.featureGroup();
+        toa.forEach(function (p, i) {
+          var m = L.marker(p, { icon: BieuTuongLoaiHinh.divIcon(@json($h->bieu_tuong ?? 'diem_moc'), mau, 26) });
+          var nhan = (nhanDiem && nhanDiem[i]) || @json($h->ten);
+          if (nhan) m.bindTooltip(thoatHtml(nhan));
+          m.addTo(lop);
+        });
+      @else
+        var lop = {!! $h->loai === 'duong'
+          ? "L.polyline(toa, { color: mau, weight: 3 })"
+          : "L.polygon(toa, { color: mau, weight: 2, fillOpacity: 0.18 })" !!};
+        @if ($h->ten)
+          lop.bindTooltip(thoatHtml(@json($h->ten)));
+        @endif
+      @endif
+      lop.addTo(map);
+      monRong(lop.getBounds ? lop.getBounds() : lop.getLatLng().toBounds(10));
+    })();
+  @endforeach
+
+  // Chặn zoom quá sâu (maxZoom riêng cho fitBounds, khác maxZoom của lớp nền) khi dự án chỉ có
+  // 1 điểm đại diện — bo tròn 10m quanh 1 điểm khiến fitBounds tự phóng lên hết cỡ (18), vượt quá
+  // độ phân giải ảnh vệ tinh Esri thực có ở nhiều vùng nông thôn, hiện "Map data not available".
+  if (gioiHan) map.fitBounds(gioiHan, { padding: [20, 20], maxZoom: 16 });
+})();
+</script>
+@endif
+@endpush

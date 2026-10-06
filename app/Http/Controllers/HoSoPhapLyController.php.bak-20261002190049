@@ -1,0 +1,137 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\DuAn;
+use App\Models\DuAnHoSoTep;
+use App\Models\DuAnVanBan;
+use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+
+/**
+ * Văn bản lưu trữ theo từng hồ sơ pháp lý, tải lên ngay ở trang chi tiết dự án. Tệp lưu ở ổ "local"
+ * (storage/app/private), không đặt trong thư mục public, nên chỉ mở được qua route có kiểm tra quyền.
+ *
+ * Riêng hồ sơ "Chấp thuận chủ trương đầu tư": tệp tải lên thành văn bản chủ trương đầu tư (bảng du_an_van_ban),
+ * cùng nơi với mục "Văn bản chủ trương đầu tư" ở form sửa, cột Chủ trương đầu tư ở danh sách và báo cáo tháng.
+ */
+class HoSoPhapLyController extends Controller
+{
+    private const THU_MUC = 'ho-so-phap-ly';
+
+    public function store(Request $request, DuAn $duAn)
+    {
+        $data = $request->validate([
+            'loai' => ['required', Rule::in(array_keys(DuAn::HO_SO_PHAP_LY))],
+            'tep' => ['required', 'array', 'max:20'],
+            'tep.*' => ['file', 'max:51200', 'mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png,zip,rar'],
+            'so_van_ban' => ['nullable', 'string', 'max:100'],
+            'ngay_van_ban' => ['nullable', 'date'],
+        ], [
+            'tep.required' => 'Chưa chọn tệp văn bản.',
+            'tep.*.max' => 'Mỗi tệp tối đa 50 MB.',
+            'tep.*.mimes' => 'Chỉ nhận tệp PDF, Word, Excel, ảnh (JPG, PNG) hoặc tệp nén (ZIP, RAR).',
+        ], ['loai' => 'loại hồ sơ', 'so_van_ban' => 'số văn bản', 'ngay_van_ban' => 'ngày văn bản']);
+
+        if ($data['loai'] === 'pl_chu_truong') {
+            return $this->luuVanBanChuTruong($request, $duAn, $data);
+        }
+
+        $soTep = 0;
+        foreach ($request->file('tep') as $tep) {
+            $duAn->hoSoTep()->create([
+                'loai' => $data['loai'],
+                'ten_tep' => mb_substr($tep->getClientOriginalName(), 0, 250),
+                'duong_dan' => $tep->store(self::THU_MUC.'/'.$duAn->id, 'local'),
+                'kich_thuoc' => (int) $tep->getSize(),
+                'so_van_ban' => $data['so_van_ban'] ?? null,
+                'ngay_van_ban' => $data['ngay_van_ban'] ?? null,
+                'nguoi_tai_id' => $request->user()->id,
+            ]);
+            $soTep++;
+        }
+
+        // Đã có văn bản thì hồ sơ đó coi như "đã có"
+        if (! $duAn->{$data['loai']}) {
+            $duAn->forceFill([$data['loai'] => true, 'nguoi_cap_nhat_id' => $request->user()->id])->save();
+        }
+
+        return redirect()->route('du-an.show', $duAn)
+            ->with('thong_bao', "Đã tải lên {$soTep} tệp cho hồ sơ \"".DuAn::HO_SO_PHAP_LY[$data['loai']].'".');
+    }
+
+    private function luuVanBanChuTruong(Request $request, DuAn $duAn, array $data)
+    {
+        $thuTu = (int) $duAn->vanBan()->max('thu_tu');
+        $soTep = 0;
+        foreach ($request->file('tep') as $tep) {
+            $duAn->vanBan()->create([
+                'so_van_ban' => $data['so_van_ban'] ?? null,
+                'ngay_van_ban' => $data['ngay_van_ban'] ?? null,
+                'tep' => $this->luuTepCongKhai($tep),
+                'ten_tep' => mb_substr($tep->getClientOriginalName(), 0, 250),
+                'thu_tu' => ++$thuTu,
+            ]);
+            $soTep++;
+        }
+        $this->capNhatVanBanChinh($duAn, ['pl_chu_truong' => true, 'nguoi_cap_nhat_id' => $request->user()->id]);
+
+        return redirect()->route('du-an.show', $duAn)
+            ->with('thong_bao', "Đã thêm {$soTep} văn bản chủ trương đầu tư.");
+    }
+
+    /** Cùng thư mục và cách đặt tên với tệp văn bản chủ trương tải ở form sửa dự án */
+    private function luuTepCongKhai(UploadedFile $tep): string
+    {
+        $thuMuc = 'du-an-tai-lieu';
+        @mkdir(public_path($thuMuc), 0755, true);
+        $tenTep = Str::random(24).'.'.$tep->getClientOriginalExtension();
+        $tep->move(public_path($thuMuc), $tenTep);
+
+        return $thuMuc.'/'.$tenTep;
+    }
+
+    /** Số/ngày văn bản trên chính dự án là văn bản chủ trương mới nhất (như khi lưu form sửa) */
+    private function capNhatVanBanChinh(DuAn $duAn, array $them = []): void
+    {
+        $moiNhat = $duAn->vanBan()->first();
+        $duAn->forceFill(array_merge([
+            'so_van_ban' => $moiNhat?->so_van_ban,
+            'ngay_van_ban' => $moiNhat?->ngay_van_ban,
+        ], $them))->save();
+    }
+
+    public function xoaVanBan(DuAnVanBan $vanBan)
+    {
+        $duAn = DuAn::findOrFail($vanBan->du_an_id);
+        if ($vanBan->tep && file_exists(public_path($vanBan->tep))) {
+            @unlink(public_path($vanBan->tep));
+        }
+        $vanBan->delete();
+        $this->capNhatVanBanChinh($duAn);
+
+        return redirect()->route('du-an.show', $duAn)
+            ->with('thong_bao', 'Đã xoá văn bản '.($vanBan->so_van_ban ?: $vanBan->ten_tep ?: 'chủ trương đầu tư').'.');
+    }
+
+    public function show(DuAnHoSoTep $tep)
+    {
+        // Người không xem được dự án (VD chủ đầu tư dự án khác — DuAn có global scope) thì không mở được tệp
+        abort_unless(DuAn::query()->whereKey($tep->du_an_id)->exists(), 404);
+        abort_unless(Storage::disk('local')->exists($tep->duong_dan), 404);
+
+        return Storage::disk('local')->response($tep->duong_dan, $tep->ten_tep);
+    }
+
+    public function destroy(DuAnHoSoTep $tep)
+    {
+        $duAnId = $tep->du_an_id;
+        Storage::disk('local')->delete($tep->duong_dan);
+        $tep->delete();
+
+        return redirect()->route('du-an.show', $duAnId)->with('thong_bao', "Đã xoá tệp \"{$tep->ten_tep}\".");
+    }
+}

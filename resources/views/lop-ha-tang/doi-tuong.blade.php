@@ -1,0 +1,188 @@
+@extends('layouts.app')
+@section('tieu_de', 'Đối tượng của lớp '.$lopHaTang->ten)
+
+@section('noi_dung')
+<div class="pad">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="font-size:16px;margin:0">
+      Đối tượng của lớp <span style="color:var(--ink-2)">{{ $lopHaTang->ten }}</span>
+    </h2>
+    <div style="display:flex;gap:8px">
+      @if (auth()->user()->duocSua() && $lopHaTang->loai_hinh_hoc === 'diem')
+        <button type="button" class="btn primary" onclick="document.getElementById('dlgThemDiem').showModal()">+ Thêm</button>
+      @endif
+      <a href="{{ route('lop-ha-tang.index') }}" class="btn">‹ Quay lại Lớp hạ tầng</a>
+    </div>
+  </div>
+
+  <form method="get" class="thanhloc">
+    <label class="grow">Từ khoá
+      <input type="search" name="tu_khoa" value="{{ is_scalar(request('tu_khoa')) ? request('tu_khoa') : '' }}" placeholder="Tên đối tượng">
+    </label>
+    <label>Loại
+      <select name="loai">
+        <option value="">Tất cả</option>
+        @foreach (App\Models\DoiTuongHaTang::LOAI as $ma => $ten)
+          <option value="{{ $ma }}" @selected(request('loai') === $ma)>{{ $ten }}</option>
+        @endforeach
+      </select>
+    </label>
+    <button class="btn primary">Lọc</button>
+    <a href="{{ route('lop-ha-tang.doi-tuong', $lopHaTang) }}" class="btn">Bỏ lọc</a>
+  </form>
+
+  @if (auth()->user()->duocSua() && $lopHaTang->loai_hinh_hoc === 'diem')
+    <dialog id="dlgThemDiem">
+      <div class="sheet-hd"><h2 style="font-size:14px">Thêm điểm vào lớp</h2></div>
+      <div class="sheet-bd" style="display:flex;flex-direction:column;gap:16px">
+        @if ($errors->any())<div class="loi" style="margin:0">{{ $errors->first() }}</div>@endif
+
+        <form method="post" action="{{ route('doi-tuong-ha-tang.store') }}">
+          @csrf
+          <h3 style="font-size:13px;margin:0 0 8px">Thêm 1 điểm</h3>
+          <div class="grid">
+            <label class="f full">Thuộc lớp
+              <select name="lop_id" required>
+                @foreach ($dsLopDiem as $l)
+                  <option value="{{ $l->id }}" @selected(old('lop_id', $lopHaTang->id) == $l->id)>{{ $l->ten }}</option>
+                @endforeach
+              </select>
+            </label>
+            <label class="f full">Tên
+              <input name="ten" maxlength="255" value="{{ old('ten') }}" placeholder="VD: TBA 110kV ABC">
+            </label>
+            <label class="f">Loại
+              <select name="loai" required>
+                @foreach (App\Models\DoiTuongHaTang::LOAI as $ma => $ten)
+                  <option value="{{ $ma }}" @selected(old('loai', 'tram') === $ma)>{{ $ten }}</option>
+                @endforeach
+              </select>
+            </label>
+            <label class="f">Điện áp (kV)
+              <input type="number" name="dien_ap" min="1" max="2000" value="{{ old('dien_ap') }}" placeholder="Không rõ">
+            </label>
+            <label class="f">Vĩ độ
+              <input type="number" name="vi_do" step="0.0000001" value="{{ old('vi_do') }}" required placeholder="VD: 16.8163">
+            </label>
+            <label class="f">Kinh độ
+              <input type="number" name="kinh_do" step="0.0000001" value="{{ old('kinh_do') }}" required placeholder="VD: 107.1003">
+            </label>
+          </div>
+          <div style="margin-top:10px;text-align:right">
+            <button class="btn primary">Thêm điểm</button>
+          </div>
+        </form>
+
+        <hr style="border:none;border-top:1px solid var(--line);margin:0">
+
+        <form method="post" action="{{ route('lop-ha-tang.nhap-them') }}" enctype="multipart/form-data">
+          @csrf
+          <h3 style="font-size:13px;margin:0 0 8px">Hoặc nhập nhiều điểm từ file (KML, KMZ, GeoJSON)</h3>
+          <div class="grid">
+            <label class="f full">Thuộc lớp
+              <select name="lop_id" required>
+                @foreach ($dsLopDiem as $l)
+                  <option value="{{ $l->id }}" @selected(old('lop_id', $lopHaTang->id) == $l->id)>{{ $l->ten }}</option>
+                @endforeach
+              </select>
+            </label>
+            <label class="f full">Chọn file
+              <input type="file" name="tep" accept=".kml,.kmz,.geojson,.json">
+            </label>
+          </div>
+          <p class="hint" style="margin:6px 0 0">Các điểm đọc được từ file sẽ được cộng thêm vào lớp đã chọn — không xoá dữ liệu cũ của lớp.</p>
+          <div style="margin-top:10px;text-align:right">
+            <button class="btn primary">Nhập file</button>
+          </div>
+        </form>
+      </div>
+      <div class="sheet-ft">
+        <button type="button" class="btn" onclick="document.getElementById('dlgThemDiem').close()">Đóng</button>
+      </div>
+    </dialog>
+  @endif
+
+  @if (auth()->user()->duocSua())
+    <dialog id="dlgSuaDoiTuong">
+      <form method="post" id="formSuaDoiTuong">
+        @csrf @method('put')
+        <div class="sheet-hd"><h2 style="font-size:14px">Sửa đối tượng</h2></div>
+        <div class="sheet-bd">
+          <div class="grid">
+            <label class="f full">Tên
+              <input name="ten" id="dtSuaTen" maxlength="255">
+            </label>
+            <label class="f">Loại
+              <select name="loai" id="dtSuaLoai" required>
+                @foreach (App\Models\DoiTuongHaTang::LOAI as $ma => $ten)
+                  <option value="{{ $ma }}">{{ $ten }}</option>
+                @endforeach
+              </select>
+            </label>
+            <label class="f">Điện áp (kV)
+              <input type="number" name="dien_ap" id="dtSuaDienAp" min="1" max="2000" placeholder="Không rõ">
+            </label>
+          </div>
+        </div>
+        <div class="sheet-ft">
+          <button type="button" class="btn" onclick="document.getElementById('dlgSuaDoiTuong').close()">Huỷ</button>
+          <button class="btn primary">Lưu</button>
+        </div>
+      </form>
+    </dialog>
+  @endif
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Tên</th><th>Loại</th><th class="num">Điện áp (kV)</th><th></th></tr>
+      </thead>
+      <tbody>
+      @forelse ($doiTuong as $d)
+        <tr>
+          <td>{{ $d->ten ?: '—' }}</td>
+          <td>{{ App\Models\DoiTuongHaTang::LOAI[$d->loai] ?? $d->loai }}</td>
+          <td class="num">{{ $d->dien_ap }}</td>
+          <td style="white-space:nowrap">
+            @if (auth()->user()->duocSua())
+              <button type="button" class="btn sm" data-sua-dt
+                      data-action="{{ route('doi-tuong-ha-tang.update', $d) }}"
+                      data-ten="{{ $d->ten }}" data-loai="{{ $d->loai }}" data-dien-ap="{{ $d->dien_ap }}">Sửa</button>
+            @endif
+          </td>
+        </tr>
+      @empty
+        <tr><td colspan="4" style="padding:26px;color:var(--ink-2)">Không có đối tượng nào khớp điều kiện lọc.</td></tr>
+      @endforelse
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:12px">{{ $doiTuong->links('vendor.pagination.don-gian', ['donVi' => 'đối tượng']) }}</div>
+</div>
+
+@if (auth()->user()->duocSua())
+  @push('cuoi_trang')
+  <script>
+  (function () {
+    var dlg = document.getElementById('dlgSuaDoiTuong');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-sua-dt]'), function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('formSuaDoiTuong').action = btn.dataset.action;
+        document.getElementById('dtSuaTen').value = btn.dataset.ten || '';
+        document.getElementById('dtSuaLoai').value = btn.dataset.loai;
+        document.getElementById('dtSuaDienAp').value = btn.dataset.dienAp || '';
+        dlg.showModal();
+      });
+    });
+  })();
+  </script>
+  @endpush
+@endif
+
+@if ($errors->has('lop_id') || $errors->has('vi_do') || $errors->has('kinh_do') || $errors->has('tep'))
+  @push('cuoi_trang')
+  <script>document.getElementById('dlgThemDiem').showModal();</script>
+  @endpush
+@endif
+@endsection

@@ -1,0 +1,77 @@
+{{--
+  Bảng báo cáo tháng theo mẫu (mỗi loại hình 1 bảng, chia nhóm I, II…, ghi chú cuối bảng).
+  Biến: $cauTruc (XuatExcelBaoCaoThang::cauTruc), $phanNhom (bool — Sở chọn nhóm cho từng dòng,
+  sửa ghi chú; phải đặt trong form), $ghiChu (ghi chú Sở đã lưu theo mã loại hình), $lienKet (bool —
+  tên dự án dẫn tới báo cáo của chủ đầu tư).
+--}}
+@php
+  $xb = \App\Services\XuatExcelBaoCaoThang::class;
+  $phanNhom = $phanNhom ?? false;
+  $lienKet = $lienKet ?? false;
+  $ghiChu = $ghiChu ?? [];
+  $dsNhom = config('duan.bao_cao_thang.nhom');
+@endphp
+@forelse ($cauTruc as $sh)
+  <div class="bct-sheet">
+    <div class="bct-tieu-de-sheet"><b>{{ $sh['tieu_de'] }}</b> <span class="hint" style="margin:0">— sheet "{{ $sh['ten'] }}", {{ $sh['muc']->count() }} dự án</span></div>
+    <div class="tablewrap bct-khung">
+      <table class="bct-bang">
+        <thead>
+          <tr>
+            @foreach ($sh['cot'] as $c)<th class="bct-{{ $c['khoa'] }}">{!! nl2br(e($c['ten'])) !!}</th>@endforeach
+            @if ($phanNhom)<th class="bct-chon-nhom">Nhóm trong bảng tổng hợp</th>@endif
+          </tr>
+        </thead>
+        <tbody>
+        @foreach ($sh['nhom'] as $i => $nhom)
+          <tr class="bct-nhom">
+            <td>{{ \App\Models\BaoCaoTuan::soLaMa($i + 1) }}</td>
+            <td colspan="{{ count($sh['cot']) - 1 + ($phanNhom ? 1 : 0) }}">{{ $xb::tieuDeNhom($nhom) }}</td>
+          </tr>
+          @foreach ($nhom['muc'] as $j => $m)
+            <tr>
+              @foreach ($sh['cot'] as $c)
+                @php $gt = $xb::giaTri($m, $c['khoa'], $j + 1); @endphp
+                <td class="bct-{{ $c['khoa'] }}">
+                  @if ($c['khoa'] === 'ten' && $lienKet && $m->baoCao)
+                    <a href="{{ route('bao-cao.thang.show', $m->baoCao) }}"><b>{{ $gt }}</b></a>
+                    <span class="chip {{ $m->baoCao->lop_chip }}" style="margin-top:3px;display:inline-block">{{ $m->baoCao->ten_trang_thai }}</span>
+                  @elseif ($c['khoa'] === 'ten')
+                    <b>{{ $gt }}</b>
+                  @else
+                    {{ $gt }}
+                  @endif
+                </td>
+              @endforeach
+              @if ($phanNhom)
+                <td class="bct-chon-nhom">
+                  <select name="nhom[{{ $m->id }}]" aria-label="Nhóm của {{ $m->duAn?->ten }}">
+                    @foreach ($dsNhom as $ma => $ten)
+                      <option value="{{ $ma }}" @selected($m->maNhom() === $ma)>{{ \Illuminate\Support\Str::ucfirst(mb_strtolower($ten)) }}</option>
+                    @endforeach
+                  </select>
+                </td>
+              @endif
+            </tr>
+          @endforeach
+        @endforeach
+        </tbody>
+      </table>
+    </div>
+    @php
+      $tuDong = $xb::ghiChuTuDong($sh['muc']);
+      $noiDung = $ghiChu[$sh['ma']] ?? $tuDong;
+    @endphp
+    @if ($phanNhom)
+      <label class="f bct-ghi-chu">Ghi chú cuối sheet "{{ $sh['ten'] }}" (mỗi dòng 1 ý — tự tạo theo năm dự kiến COD, sửa được)
+        <textarea name="ghi_chu[{{ $sh['ma'] }}]" rows="{{ max(3, substr_count($noiDung, "\n") + 2) }}">{{ $noiDung }}</textarea>
+      </label>
+    @elseif (trim($noiDung) !== '')
+      <div class="bct-ghi-chu"><b>Ghi chú:</b>
+        @foreach (\App\Models\BaoCaoTuanDuAn::tachDong($noiDung) as $d)<div>{{ $d }}</div>@endforeach
+      </div>
+    @endif
+  </div>
+@empty
+  <p class="trong" style="margin:0">Chưa có báo cáo nào được gửi trong tháng này.</p>
+@endforelse

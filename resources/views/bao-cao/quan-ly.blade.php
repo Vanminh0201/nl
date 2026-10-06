@@ -1,0 +1,416 @@
+@extends('layouts.app')
+@section('tieu_de', 'Quản lý báo cáo tuần')
+
+@php
+  $coTheXuLy = in_array(auth()->user()->vai_tro, ['quan_tri', 'nhap_lieu']);
+  $so = fn ($v) => \App\Models\BaoCaoTuanDuAn::so($v);
+  $pt = fn ($a, $b) => \App\Models\BaoCaoTuanDuAn::phanTram($a, $b);
+@endphp
+
+@section('noi_dung')
+<div class="pad bc-trang">
+  @include('bao-cao._tab', ['dangChon' => 'bao-cao.index'])
+  @php
+    // Ô chọn tuần: nhóm theo tháng của ngày thứ Năm cuối kỳ, tuần mới nhất ở trên
+    $nhomKy = [];
+    foreach (array_reverse($dsKyChon) as $k) {
+      $nhomKy['Tháng '.$k->denNgay->format('n/Y')][] = [
+        'url' => route('bao-cao.index', ['ky' => $k->ma()]),
+        'ten' => 'Tuần '.$k->tuan,
+        'phu' => $k->tuNgay->format('d/m').' – '.$k->denNgay->format('d/m'),
+        'chon' => $k->bang($ky),
+        'hien_tai' => $k->laHienTai(),
+        'tinh_hinh' => $tinhHinhKy[$k->ma()] ?? null,
+      ];
+    }
+    $oKpi = [
+      ['k-tong', 'don-vi', $dem['phai_nop'], 'Chủ đầu tư phải báo cáo'],
+      ['k-cho', 'cho', $dem['cho'], 'Chờ tiếp nhận'],
+      ['k-xong', 'xong', $dem['tiep_nhan'], 'Đã tiếp nhận'],
+      ['k-bo-sung', 'bo-sung', $dem['bo_sung'], 'Yêu cầu bổ sung'],
+      ['k-chua', 'chua', $dem['chua_nop'], 'Chưa nộp'],
+    ];
+  @endphp
+  <div class="bc-thanh-ky bc-ky">
+    @include('bao-cao._chon-ky', [
+      'ten' => $ky->ten(),
+      'phu' => $ky->khoang(),
+      'truoc' => ['url' => route('bao-cao.index', ['ky' => $ky->truoc()->ma()]), 'ten' => 'Tuần trước'],
+      'sau' => $ky->laHienTai() ? null : ['url' => route('bao-cao.index', ['ky' => $ky->sau()->ma()]), 'ten' => 'Tuần sau'],
+      'nhom' => $nhomKy,
+    ])
+    @unless ($ky->laHienTai())
+      <a href="{{ route('bao-cao.index') }}" class="btn bc-nut">Về tuần này</a>
+    @endunless
+    <span class="bc-ky-gian"></span>
+    <a href="{{ route('bao-cao.tong-hop-in', ['ky' => $ky->ma()]) }}" class="btn bc-nut" target="_blank" rel="noopener">@include('bao-cao._icon', ['ten' => 'in'])In bảng tổng hợp</a>
+    <a href="{{ route('bao-cao.tong-hop-word', ['ky' => $ky->ma()]) }}" class="btn primary bc-nut">@include('bao-cao._icon', ['ten' => 'tai'])Tải bảng tổng hợp (Word)</a>
+  </div>
+
+  <div class="bc-kpi">
+    @foreach ($oKpi as [$lop, $icon, $soLuong, $nhan])
+      <div class="bc-kpi-o {{ $lop }} {{ $soLuong ? '' : 'rong' }}">
+        <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => $icon, 'co' => 21])</span>
+        <div class="bc-kpi-noi">
+          <b>{{ $soLuong }}</b><span>{{ $nhan }}</span>
+        </div>
+      </div>
+    @endforeach
+  </div>
+
+  @if ($choTiepNhanKyKhac->isNotEmpty())
+    <div class="bc-nhac">
+      <b>Báo cáo các tuần khác đang chờ tiếp nhận:</b>
+      @foreach ($choTiepNhanKyKhac as $b)
+        <a href="{{ route('bao-cao.show', $b) }}" class="chip xanh">{{ $b->ten_don_vi_hien_thi }} — {{ $b->ky()->ten() }}</a>
+      @endforeach
+    </div>
+  @endif
+
+  <div class="sheet">
+    <div class="sheet-hd bc-phan-hd">
+      <div class="bc-phan-giua">
+        <h2>Tình hình nộp báo cáo {{ $ky->ten() }} <span class="bc-phan-ky">({{ $ky->khoang() }})</span></h2>
+      </div>
+      @if ($coTheXuLy)
+        <form method="post" action="{{ route('bao-cao.xu-ly-hang-loat') }}" id="bc-form-hang-loat" class="bc-phan-phai">
+          @csrf
+          <button type="submit" class="btn primary" id="bc-nut-hang-loat" disabled>Tiếp nhận đã chọn (<span id="bc-so-chon">0</span>)</button>
+        </form>
+      @endif
+    </div>
+    <div class="tablewrap" style="border:0;border-radius:0">
+      <table class="bc-nop">
+        <colgroup>
+          @if ($coTheXuLy)<col style="width:2.6%">@endif
+          <col style="width:3.6%"><col style="width:17%"><col style="width:25%"><col style="width:10.5%">
+          <col style="width:9%"><col style="width:14%"><col style="width:9%"><col style="width:9.3%">
+        </colgroup>
+        <thead>
+          <tr>
+            @if ($coTheXuLy)<th class="giua"><input type="checkbox" id="bc-chon-tat-ca" title="Chọn tất cả đang chờ tiếp nhận"></th>@endif
+            <th class="giua">STT</th><th>Chủ đầu tư</th><th>Dự án được gán</th><th class="giua">Trạng thái</th>
+            <th class="giua">Thời điểm nộp</th><th>Xử lý</th><th class="giua">Thao tác</th><th class="giua">Báo cáo gần nhất</th>
+          </tr>
+        </thead>
+        <tbody>
+        @forelse ($hang as $i => $h)
+          @php
+            $u = $h['nguoi']; $b = $h['bao_cao']; $choTiepNhan = $b && $b->trang_thai === 'da_nop';
+            [$ngayNop, $gioNop] = array_pad(explode(' ', (string) $b?->gio('nop_luc'), 2), 2, '');
+          @endphp
+          <tr class="{{ $choTiepNhan ? 'bc-hang-cho' : '' }}">
+            @if ($coTheXuLy)
+              <td class="giua">@if ($choTiepNhan)<input type="checkbox" class="bc-chon-dong" value="{{ $b->id }}">@endif</td>
+            @endif
+            <td class="giua">{{ $i + 1 }}</td>
+            <td>
+              <div class="bc-nop-dv">{{ $u->don_vi ?: $u->name }}</div>
+              <div class="bc-nop-lh">{{ $u->don_vi ? $u->name.' · ' : '' }}{{ $u->email }}</div>
+            </td>
+            <td>
+              @if ($u->duAn->isNotEmpty())
+                <ul class="bc-nop-da">@foreach ($u->duAn as $d)<li>{{ $d->ten }}</li>@endforeach</ul>
+              @else
+                <span class="rong">—</span>
+              @endif
+            </td>
+            <td class="giua">
+              @if ($b)
+                <span class="chip {{ $b->lop_chip }}">{{ $b->ten_trang_thai }}</span>
+              @elseif ($ky->somHon($h['bat_dau']))
+                <span class="chip" title="Kỳ trước mốc áp dụng không tính là chưa nộp — đổi mốc ở Cài đặt báo cáo">Áp dụng từ {{ $h['bat_dau']->ten() }}</span>
+              @else
+                <span class="chip {{ $ky->laHienTai() ? '' : 'do' }}">Chưa nộp</span>
+              @endif
+            </td>
+            <td class="giua bc-nop-tg">
+              @if ($ngayNop !== '')<b>{{ $ngayNop }}</b><span>{{ $gioNop }}</span>@else<span class="rong">—</span>@endif
+            </td>
+            <td class="bc-nop-xl">
+              @if ($b?->xu_ly_luc)
+                <b>{{ $b->nguoiXuLy?->name }}</b><span>{{ $b->gio('xu_ly_luc') }}</span>
+                @if ($b->y_kien_xu_ly)<p>{{ $b->y_kien_xu_ly }}</p>@endif
+              @else
+                <span class="rong">—</span>
+              @endif
+            </td>
+            <td class="giua">
+              @if ($b)
+                <div class="bc-nop-tt">
+                  @if ($coTheXuLy && $b->trang_thai === 'da_nop')
+                    <a href="{{ route('bao-cao.show', $b) }}" class="btn sm primary">Xem &amp; xử lý</a>
+                  @else
+                    <a href="{{ route('bao-cao.show', $b) }}" class="btn sm">Xem</a>
+                  @endif
+                  <a href="{{ route('bao-cao.word', $b) }}" class="btn sm">Word</a>
+                </div>
+              @else
+                <span class="rong">—</span>
+              @endif
+            </td>
+            <td class="giua bc-nop-gn">
+              @if ($gn = $h['gan_nhat'])
+                <a href="{{ route('bao-cao.show', $gn->id) }}" title="Xem nội dung báo cáo">{{ $gn->ky()->ten() }}</a>
+                <span class="chip {{ $gn->lop_chip }}">{{ $gn->ten_trang_thai }}</span>
+              @else
+                <span class="rong">Chưa gửi báo cáo nào</span>
+              @endif
+            </td>
+          </tr>
+        @empty
+          <tr><td colspan="9" class="trong">Chưa có tài khoản chủ đầu tư nào được duyệt và gán dự án — gán tài khoản chủ đầu tư ở màn hình sửa dự án.</td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  @php
+    $namTc = $ky->namTaiChinh();
+    $oSo = fn ($v) => $v === null ? '—' : $so($v);
+    $oPt = fn ($v) => $v === null ? '—' : $v.'%';
+    $cong = fn ($a, $b) => $b === null ? $a : ($a ?? 0) + $b;
+    $tong = ['kh' => null, 'th' => null, 'tm' => null, 'lk' => null];
+    foreach ($tongHop as $t) {
+      $c = $t['ct'];
+      $tong = ['kh' => $cong($tong['kh'], $c->ke_hoach_von_nam), 'th' => $cong($tong['th'], $c->giai_ngan_nam),
+               'tm' => $cong($tong['tm'], $c->tong_muc_dau_tu), 'lk' => $cong($tong['lk'], $c->luy_ke_giai_ngan)];
+    }
+  @endphp
+  <div class="sheet">
+    <div class="sheet-hd bc-phan-hd">
+      <div class="bc-phan-giua">
+        <h2>Tổng hợp số liệu theo dự án — {{ $ky->ten() }}</h2>
+      </div>
+    </div>
+    <div class="tablewrap" style="border:0;border-radius:0">
+      <table class="bc-so-lieu">
+        <thead>
+          <tr>
+            <th rowspan="2" class="giua">STT</th>
+            <th rowspan="2" class="trai">Dự án</th>
+            <th rowspan="2" class="trai">Chủ đầu tư</th>
+            <th rowspan="2">Tiến độ tổng thể</th>
+            <th colspan="3" class="nhom">Giải ngân năm {{ $namTc }} <span class="bc-don-vi">(tỷ đồng)</span></th>
+            <th colspan="3" class="nhom">Lũy kế giải ngân từ khởi công <span class="bc-don-vi">(tỷ đồng)</span></th>
+            <th rowspan="2">Báo cáo</th>
+          </tr>
+          <tr>
+            <th>Kế hoạch vốn</th><th>Đã giải ngân</th><th>Tỷ lệ</th>
+            <th>Tổng mức đầu tư</th><th>Lũy kế</th><th>Tỷ lệ</th>
+          </tr>
+        </thead>
+        <tbody>
+        @forelse ($tongHop as $i => $t)
+          @php
+            $ct = $t['ct']; $b = $t['bc'];
+            $tienDo = $ct->tien_do === null ? null : max(0, min(100, (float) $ct->tien_do));
+          @endphp
+          <tr>
+            <td class="giua">{{ $i + 1 }}</td>
+            <td><a href="#bc-da-{{ $i + 1 }}" class="bc-ten-da" title="Xem tình hình thực hiện, khó khăn của dự án">{{ $ct->duAn?->ten ?? '(dự án đã xoá)' }}</a></td>
+            <td>{{ $b->ten_don_vi_hien_thi }}</td>
+            <td>
+              @if ($tienDo === null)
+                <span class="hint" style="margin:0">—</span>
+              @else
+                <div class="bc-thanh"><span class="tiendo"><i style="width:{{ $tienDo }}%"></i></span><b>{{ \App\Models\BaoCaoTuanDuAn::phanTramTienDo($ct->tien_do) }}</b></div>
+              @endif
+            </td>
+            <td class="num">{{ $oSo($ct->ke_hoach_von_nam) }}</td>
+            <td class="num"><b>{{ $oSo($ct->giai_ngan_nam) }}</b></td>
+            <td class="num">{{ $oPt($pt($ct->giai_ngan_nam, $ct->ke_hoach_von_nam)) }}</td>
+            <td class="num">{{ $oSo($ct->tong_muc_dau_tu) }}</td>
+            <td class="num"><b>{{ $oSo($ct->luy_ke_giai_ngan) }}</b></td>
+            <td class="num">{{ $oPt($pt($ct->luy_ke_giai_ngan, $ct->tong_muc_dau_tu)) }}</td>
+            <td style="white-space:nowrap"><span class="chip {{ $b->lop_chip }}">{{ $b->ten_trang_thai }}</span>
+              <a href="{{ route('bao-cao.show', $b) }}" class="btn sm" style="margin-left:4px">Xem</a></td>
+          </tr>
+        @empty
+          <tr><td colspan="11" class="trong">Chưa có báo cáo nào được nộp trong tuần này.</td></tr>
+        @endforelse
+        </tbody>
+        @if ($tongHop->count() > 1)
+          <tfoot>
+            <tr>
+              <td></td><td colspan="3">Tổng cộng</td>
+              <td class="num">{{ $oSo($tong['kh']) }}</td><td class="num"><b>{{ $oSo($tong['th']) }}</b></td>
+              <td class="num">{{ $oPt($pt($tong['th'], $tong['kh'])) }}</td>
+              <td class="num">{{ $oSo($tong['tm']) }}</td><td class="num"><b>{{ $oSo($tong['lk']) }}</b></td>
+              <td class="num">{{ $oPt($pt($tong['lk'], $tong['tm'])) }}</td><td></td>
+            </tr>
+          </tfoot>
+        @endif
+      </table>
+    </div>
+  </div>
+
+  @if ($tongHop->isNotEmpty())
+    <div class="sheet">
+      <div class="sheet-hd bc-phan-hd">
+        <div class="bc-phan-giua">
+          <h2>Tình hình thực hiện, khó khăn, vướng mắc của từng dự án — {{ $ky->ten() }}</h2>
+        </div>
+      </div>
+      <div class="bc-the-ds">
+        @foreach ($tongHop as $i => $t)
+          @php
+            $ct = $t['ct']; $b = $t['bc'];
+            $ptNam = $pt($ct->giai_ngan_nam, $ct->ke_hoach_von_nam);
+            $ptLk = $pt($ct->luy_ke_giai_ngan, $ct->tong_muc_dau_tu);
+            // Độ dài thanh tỷ lệ trong 3 ô chỉ số (tối đa 100%); giải ngân vượt kế hoạch được đánh dấu riêng
+            $tyLe = fn ($a, $b) => ($a !== null && $b) ? $a / $b * 100 : null;
+            $vTd = $ct->tien_do === null ? null : (float) $ct->tien_do;
+            $vNam = $tyLe($ct->giai_ngan_nam, $ct->ke_hoach_von_nam);
+            $vLk = $tyLe($ct->luy_ke_giai_ngan, $ct->tong_muc_dau_tu);
+            $rong = fn ($v) => $v === null ? 0 : round(max(0, min(100, $v)), 1);
+          @endphp
+          <article class="bc-the" id="bc-da-{{ $i + 1 }}">
+            <header class="bc-the-dau">
+              <span class="bc-the-so">{{ $i + 1 }}</span>
+              <div style="min-width:0">
+                <a href="{{ route('bao-cao.show', $b) }}" class="bc-the-ten">{{ $ct->duAn?->ten ?? '(dự án đã xoá)' }}</a>
+                <div class="bc-the-phu">
+                  <span>{{ $b->ten_don_vi_hien_thi }}</span><span>·</span><span>Nộp lúc {{ $b->gio('nop_luc') }}</span>
+                  <span class="chip {{ $b->lop_chip }}">{{ $b->ten_trang_thai }}</span>
+                </div>
+              </div>
+              <div class="bc-the-chiso">
+                <div class="cs-tien-do">
+                  <span>Tiến độ</span><b>{{ \App\Models\BaoCaoTuanDuAn::phanTramTienDo($ct->tien_do) ?: '—' }}</b>
+                  <small>tổng thể dự án</small>
+                  <i class="cs-thanh"><i style="width:{{ $rong($vTd) }}%"></i></i>
+                </div>
+                <div class="cs-giai-ngan {{ $vNam !== null && $vNam > 100 ? 'vuot' : '' }}" @if ($vNam !== null && $vNam > 100) title="Giải ngân vượt kế hoạch vốn năm — đề nghị kiểm tra lại số liệu" @endif>
+                  <span>Giải ngân năm {{ $namTc }}</span><b>{{ $oPt($ptNam) }}</b>
+                  <small>{{ $oSo($ct->giai_ngan_nam) }} / {{ $oSo($ct->ke_hoach_von_nam) }} tỷ đồng</small>
+                  <i class="cs-thanh"><i style="width:{{ $rong($vNam) }}%"></i></i>
+                </div>
+                <div class="cs-luy-ke">
+                  <span>Lũy kế / tổng mức đầu tư</span><b>{{ $oPt($ptLk) }}</b>
+                  <small>{{ $oSo($ct->luy_ke_giai_ngan) }} / {{ $oSo($ct->tong_muc_dau_tu) }} tỷ đồng</small>
+                  <i class="cs-thanh"><i style="width:{{ $rong($vLk) }}%"></i></i>
+                </div>
+              </div>
+            </header>
+            <div class="bc-the-than">
+              <section class="bc-the-muc">
+                <h4>Tình hình thực hiện</h4>
+                <div class="bc-van">@include('bao-cao._doan-van', ['chu' => $ct->cong_viec_dang_lam])</div>
+              </section>
+              <section class="bc-the-muc kho-khan">
+                <h4>Khó khăn, vướng mắc, kiến nghị</h4>
+                <div class="bc-van">@include('bao-cao._doan-van', ['chu' => $ct->kho_khan, 'trong' => 'Không có.'])</div>
+              </section>
+            </div>
+            @if (trim((string) $ct->ke_hoach) !== '')
+              <section class="bc-the-muc bc-the-ke-hoach">
+                <h4>Kế hoạch tiếp theo, tiến độ dự kiến</h4>
+                <div class="bc-van">@include('bao-cao._doan-van', ['chu' => $ct->ke_hoach])</div>
+              </section>
+            @endif
+          </article>
+        @endforeach
+      </div>
+    </div>
+  @endif
+
+  <div class="sheet">
+    <div class="sheet-hd bc-phan-hd">
+      <div class="bc-phan-giua">
+      <h2>Theo dõi nộp báo cáo {{ count($cacKy) }} tuần gần nhất</h2>
+      <div class="bc-chu-giai hint">
+        <span><i class="o-ky co">✓</i> Đã tiếp nhận</span>
+        <span><i class="o-ky xanh">●</i> Chờ tiếp nhận</span>
+        <span><i class="o-ky do">!</i> Yêu cầu bổ sung</span>
+        <span><i class="o-ky thieu">✕</i> Không nộp</span>
+      </div>
+      </div>
+    </div>
+    <div class="tablewrap" style="border:0;border-radius:0">
+      <table class="bc-ma-tran">
+        <thead>
+          <tr>
+            <th>Chủ đầu tư</th>
+            @foreach ($cacKy as $k)
+              <th title="{{ $k->khoang() }}"><a href="{{ route('bao-cao.index', ['ky' => $k->ma()]) }}">T{{ $k->tuan }}</a></th>
+            @endforeach
+            <th class="num">Tỷ lệ nộp</th>
+          </tr>
+        </thead>
+        <tbody>
+        @forelse ($hang as $h)
+          @php
+            $u = $h['nguoi'];
+            $cua = $theoDoi->get($u->id, collect());
+            // Tuần đang diễn ra hoặc trước khi bắt đầu áp dụng chỉ tính khi đã có báo cáo
+            $tinh = array_filter($cacKy, fn ($k) => $cua->has($k->ma()) || (! $k->laHienTai() && ! $k->somHon($h['bat_dau'])));
+          @endphp
+          <tr>
+            <td>{{ $u->don_vi ?: $u->name }}</td>
+            @foreach ($cacKy as $k)
+              @php $b = $cua->get($k->ma()); @endphp
+              <td>
+                @if ($b)
+                  <a href="{{ route('bao-cao.show', $b->id) }}" class="o-ky {{ $b->lop_chip }}" title="{{ $k->ten() }}: {{ $b->ten_trang_thai }}">{{ ['da_tiep_nhan' => '✓', 'da_nop' => '●', 'yeu_cau_bo_sung' => '!'][$b->trang_thai] ?? '·' }}</a>
+                @elseif ($k->somHon($h['bat_dau']))
+                  <span class="o-ky na" title="{{ $k->ten() }}: chưa áp dụng báo cáo tuần">–</span>
+                @elseif ($k->laHienTai())
+                  <span class="o-ky" title="{{ $k->ten() }}: chưa nộp (tuần đang diễn ra)">·</span>
+                @else
+                  <span class="o-ky thieu" title="{{ $k->ten() }}: không nộp">✕</span>
+                @endif
+              </td>
+            @endforeach
+            <td class="num">{{ count($tinh) ? $cua->count().'/'.count($tinh) : '—' }}</td>
+          </tr>
+        @empty
+          <tr><td colspan="{{ count($cacKy) + 2 }}" class="trong">—</td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+@endsection
+
+@push('cuoi_trang')
+<script>
+(function () {
+  var chonTatCa = document.getElementById('bc-chon-tat-ca');
+  var dsChon = Array.prototype.slice.call(document.querySelectorAll('.bc-chon-dong'));
+  var nutHangLoat = document.getElementById('bc-nut-hang-loat');
+  var soChonEl = document.getElementById('bc-so-chon');
+  var form = document.getElementById('bc-form-hang-loat');
+  if (!dsChon.length || !form) return;
+
+  function capNhat() {
+    var chon = dsChon.filter(function (c) { return c.checked; });
+    soChonEl.textContent = chon.length;
+    nutHangLoat.disabled = chon.length === 0;
+    if (chonTatCa) chonTatCa.checked = chon.length === dsChon.length;
+  }
+  dsChon.forEach(function (c) { c.addEventListener('change', capNhat); });
+  if (chonTatCa) {
+    chonTatCa.addEventListener('change', function () {
+      dsChon.forEach(function (c) { c.checked = chonTatCa.checked; });
+      capNhat();
+    });
+  }
+  form.addEventListener('submit', function (e) {
+    var chon = dsChon.filter(function (c) { return c.checked; });
+    if (! chon.length) { e.preventDefault(); return; }
+    if (! confirm('Tiếp nhận ' + chon.length + ' báo cáo đã chọn? Tiến độ dự án sẽ được cập nhật theo từng báo cáo.')) {
+      e.preventDefault();
+      return;
+    }
+    chon.forEach(function (c) {
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = 'bao_cao_ids[]'; h.value = c.value;
+      form.appendChild(h);
+    });
+  });
+})();
+</script>
+@endpush

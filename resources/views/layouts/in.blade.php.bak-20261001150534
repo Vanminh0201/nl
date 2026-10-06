@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@yield('tieu_de', 'In báo cáo')</title>
+{{-- Trang in độc lập (không dùng khung giao diện chính): khổ A4 ngang, chữ Times New Roman như văn bản hành chính --}}
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#d9ddd8;color:#000;font-family:"Times New Roman",Times,serif;font-size:12pt;line-height:1.3}
+  .thanh-in{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;padding:8px 14px;background:#17202a;color:#f2f4f2;
+    font-family:"Segoe UI",system-ui,Arial,sans-serif;font-size:13px}
+  .thanh-in b{font-weight:600}
+  .thanh-in span{flex:1}
+  .thanh-in button{border:1px solid #3a4652;background:#fff;color:#17202a;padding:6px 14px;border-radius:3px;font:inherit;cursor:pointer}
+  .thanh-in button.chinh{background:#1f4b6e;border-color:#1f4b6e;color:#fff;font-weight:600}
+  .giay{background:#fff;width:297mm;max-width:100%;min-height:210mm;margin:16px auto;padding:12mm 12mm;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+  .quoc-hieu{width:100%;border-collapse:collapse;margin-bottom:6pt}
+  .quoc-hieu td{border:0;text-align:center;vertical-align:top;padding:0;font-size:12pt}
+  .quoc-hieu hr{width:40%;margin:2pt auto 4pt;border:0;border-top:1px solid #000}
+  h1{font-size:14pt;text-align:center;margin:10pt 0 2pt}
+  h2{font-size:13pt;text-align:center;margin:0 0 2pt}
+  h3{font-size:12.5pt;margin:12pt 0 5pt}
+  .phu{text-align:center;font-style:italic;margin:0 0 8pt}
+  p{margin:3pt 0}
+  table.in{width:100%;border-collapse:collapse;font-size:11pt;margin-top:4pt}
+  table.in th,table.in td{border:1px solid #000;padding:3pt 4pt;vertical-align:top;text-align:left;overflow-wrap:anywhere}
+  table.in th{background:#e7e6e6;text-align:center;vertical-align:middle;font-weight:700}
+  table.in td.giua{text-align:center}
+  table.in td.chu{white-space:pre-line}
+  table.in tr.nhom td{background:#f2f2f2;font-weight:700}
+  thead{display:table-header-group}
+  tr{page-break-inside:avoid}
+  .ghi-chu{margin-top:6pt}
+  .ghi-chu div{padding-left:18pt}
+  .ngat-trang{page-break-before:always}
+  .trong{font-style:italic}
+  @page{size:A4 landscape;margin:10mm 10mm 12mm}
+  @media print{
+    body{background:#fff}
+    .thanh-in{display:none}
+    .giay{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  }
+</style>
+</head>
+<body>
+<div class="thanh-in">
+  <b>@yield('tieu_de', 'In báo cáo')</b><span></span>
+  <button type="button" class="chinh" onclick="window.print()">In</button>
+  <button type="button" onclick="window.close()">Đóng</button>
+</div>
+<div class="giay">
+  <table class="quoc-hieu">
+    <tr>
+      <td style="width:40%">
+        <div><b>{{ mb_strtoupper(config('duan.bao_cao.don_vi_tong_hop')) }}</b></div>
+        <hr>
+      </td>
+      <td>
+        <div><b>CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM</b></div>
+        <div><b>Độc lập – Tự do – Hạnh phúc</b></div>
+        <hr>
+        <div><i>{{ config('duan.bao_cao.dia_danh') }}, ngày {{ now(\App\Support\KyBaoCao::MUI_GIO)->format('d') }} tháng {{ now(\App\Support\KyBaoCao::MUI_GIO)->format('m') }} năm {{ now(\App\Support\KyBaoCao::MUI_GIO)->format('Y') }}</i></div>
+      </td>
+    </tr>
+  </table>
+  @yield('noi_dung')
+</div>
+</body>
+</html>

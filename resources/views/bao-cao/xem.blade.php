@@ -1,0 +1,173 @@
+@extends('layouts.app')
+@section('tieu_de', 'Báo cáo '.$ky->ten().' — '.$baoCao->ten_don_vi_hien_thi)
+
+@php
+  $nguoiDung = auth()->user();
+  $laChuDauTu = $nguoiDung->vai_tro === 'chu_dau_tu';
+  $coTheXuLy = in_array($nguoiDung->vai_tro, ['quan_tri', 'nhap_lieu']);
+  $donVi = $baoCao->ten_don_vi_hien_thi;
+  $kinhGui = \App\Models\BaoCaoTuanDuAn::tachDong($baoCao->kinh_gui ?: config('duan.bao_cao.kinh_gui'));
+  $namTaiChinh = $ky->namTaiChinh();
+@endphp
+
+@section('noi_dung')
+<div class="bc-xem">
+  <div class="bc-giay-khung">
+    <article class="bc-giay">
+      <table class="bc-dau">
+        <tr>
+          <td style="width:42.5%">
+            @if ($baoCao->co_quan_chu_quan)<div style="white-space:nowrap">{{ mb_strtoupper($baoCao->co_quan_chu_quan) }}</div>@endif
+            <div><b>{{ mb_strtoupper($donVi) }}</b></div>
+            <hr class="vach ngan">
+            <div class="co13" style="white-space:pre">Số: {{ $baoCao->soHieuDeTrong() }}</div>
+          </td>
+          <td>
+            <div style="white-space:nowrap"><b>CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM</b></div>
+            <div class="co13"><b>Độc lập – Tự do – Hạnh phúc</b></div>
+            <hr class="vach dai">
+            <div class="co13"><i>{{ $baoCao->dongNgayThang() }}</i></div>
+          </td>
+        </tr>
+      </table>
+
+      <h1>BÁO CÁO</h1>
+      <h2>Tình hình triển khai thực hiện các dự án tuần {{ $ky->tuan }} năm {{ $ky->nam }}</h2>
+      <p class="giua"><i>(Từ ngày {{ $ky->tuNgay->format('d/m/Y') }} đến ngày {{ $ky->denNgay->format('d/m/Y') }})</i></p>
+      <hr class="vach">
+
+      @if (count($kinhGui) <= 1)
+        <p class="giua" style="margin-top:9pt">Kính gửi: {{ $kinhGui[0] ?? '' }}</p>
+      @else
+        <p class="kinh-gui" style="margin-top:9pt">Kính gửi:</p>
+        @foreach ($kinhGui as $d)
+          <p class="kinh-gui-dong">{{ str_starts_with($d, '-') ? $d : '- '.$d }}</p>
+        @endforeach
+      @endif
+
+      <p class="than" style="margin-top:9pt">{{ $donVi }} kính báo cáo tình hình triển khai thực hiện các dự án trong tuần {{ $ky->tuan }} năm {{ $ky->nam }} như sau:</p>
+      @foreach (\App\Models\BaoCaoTuanDuAn::tachDong($baoCao->gioi_thieu) as $d)
+        <p class="than">{{ $d }}</p>
+      @endforeach
+
+      @forelse ($baoCao->chiTiet->values() as $i => $ct)
+        <h3>{{ \App\Models\BaoCaoTuan::soLaMa($i + 1) }}. {{ $ct->tieuDeMuc() }}</h3>
+        @foreach ($ct->cacMuc($namTaiChinh) as $muc)
+          <p class="than"><b>{{ $muc['tieu_de'] }}</b></p>
+          @foreach ($muc['dong'] as $d)
+            <p class="than">{{ $d }}</p>
+          @endforeach
+        @endforeach
+      @empty
+        <p class="than"><i>(Báo cáo chưa có dự án nào.)</i></p>
+      @endforelse
+
+      <p class="than" style="margin:9pt 0">{{ $donVi }} kính báo cáo./.</p>
+
+      <table class="bc-cuoi">
+        <tr>
+          <td style="width:47%">
+            <div class="co12"><b><i>Nơi nhận:</i></b></div>
+            @foreach (\App\Models\BaoCaoTuanDuAn::tachDong($baoCao->noi_nhan ?: config('duan.bao_cao.noi_nhan')) as $d)
+              <div class="co11">{{ $d }}</div>
+            @endforeach
+          </td>
+          <td class="ky">
+            @foreach ($baoCao->dongChucVuKy() as $d)
+              <div><b>{{ mb_strtoupper($d) }}</b></div>
+            @endforeach
+            <div style="height:72pt"></div>
+            <div><b>{{ $baoCao->nguoi_ky }}</b></div>
+          </td>
+        </tr>
+      </table>
+    </article>
+  </div>
+
+  <div class="bc-ben">
+    <div class="sheet">
+      <div class="sheet-hd">
+        <h2>{{ $ky->ten() }}</h2>
+        <div class="hint" style="margin-top:2px">{{ $ky->khoang() }}</div>
+      </div>
+      <div class="sheet-bd">
+        <dl style="margin:0">
+          <div class="row"><dt>Đơn vị</dt><dd>{{ $donVi }}@unless ($laChuDauTu)<div class="hint" style="margin:0">{{ $baoCao->nguoiBaoCao?->name }} · {{ $baoCao->nguoiBaoCao?->email }}</div>@endunless</dd></div>
+          <div class="row"><dt>Trạng thái</dt><dd><span class="chip {{ $baoCao->lop_chip }}">{{ $baoCao->ten_trang_thai }}</span></dd></div>
+          <div class="row"><dt>Nộp lúc</dt><dd>{{ $baoCao->gio('nop_luc') ?? 'Chưa nộp' }}</dd></div>
+          @if ($baoCao->xu_ly_luc)
+            <div class="row"><dt>Sở xử lý</dt><dd>{{ $baoCao->nguoiXuLy?->name }}, {{ $baoCao->gio('xu_ly_luc') }}</dd></div>
+          @endif
+          @if ($baoCao->y_kien_xu_ly)
+            <div class="row"><dt>Ý kiến của Sở</dt><dd style="white-space:pre-line">{{ $baoCao->y_kien_xu_ly }}</dd></div>
+          @endif
+        </dl>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
+          @if ($laChuDauTu && $baoCao->conSuaDuoc())
+            <a href="{{ route('bao-cao.soan', ['ky' => $ky->ma()]) }}" class="btn primary">
+              {{ $baoCao->trang_thai === 'yeu_cau_bo_sung' ? 'Bổ sung báo cáo' : 'Sửa báo cáo' }}
+            </a>
+          @endif
+          <a href="{{ route('bao-cao.word', $baoCao) }}" class="btn">Tải Word</a>
+          <button type="button" class="btn" onclick="window.print()">In</button>
+          <a href="{{ route('bao-cao.index', $laChuDauTu ? [] : ['ky' => $ky->ma()]) }}" class="btn">Về danh sách</a>
+        </div>
+      </div>
+    </div>
+
+    @if ($coTheXuLy && in_array($baoCao->trang_thai, ['da_nop', 'da_tiep_nhan']))
+      @php $daTiepNhan = $baoCao->trang_thai === 'da_tiep_nhan'; @endphp
+      <div class="sheet">
+        <div class="sheet-hd"><h2>{{ $daTiepNhan ? 'Trả lại báo cáo đã tiếp nhận' : 'Xử lý báo cáo' }}</h2></div>
+        <form method="post" action="{{ route('bao-cao.xu-ly', $baoCao) }}" class="sheet-bd" style="display:flex;flex-direction:column;gap:10px">
+          @csrf @method('patch')
+          @if ($errors->any())<div class="loi" style="margin:0">{{ $errors->first() }}</div>@endif
+          <label class="f">{{ $daTiepNhan ? 'Lý do trả lại (bắt buộc)' : 'Ý kiến gửi chủ đầu tư (bắt buộc khi yêu cầu bổ sung)' }}
+            <textarea name="y_kien" rows="4" maxlength="2000">{{ old('y_kien') }}</textarea>
+          </label>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            @unless ($daTiepNhan)
+              <button name="hanh_dong" value="tiep_nhan" class="btn primary">Tiếp nhận</button>
+            @endunless
+            <button name="hanh_dong" value="yeu_cau_bo_sung" class="btn danger">{{ $daTiepNhan ? 'Trả lại báo cáo' : 'Yêu cầu bổ sung' }}</button>
+          </div>
+          <p class="hint" style="margin:0">
+            @if ($daTiepNhan)
+              Dùng khi tiếp nhận nhầm — báo cáo chuyển về "Yêu cầu bổ sung" để chủ đầu tư sửa và nộp lại. Tiến độ dự án đã cập nhật trước đó không tự lùi lại, sẽ được ghi đè khi báo cáo sửa lại được tiếp nhận.
+            @else
+              Khi tiếp nhận, tiến độ (%) chủ đầu tư khai trong báo cáo được cập nhật vào dữ liệu của từng dự án.
+            @endif
+          </p>
+        </form>
+      </div>
+    @endif
+
+    <div class="sheet">
+      <div class="sheet-hd"><h2>Số liệu chính</h2></div>
+      <div class="sheet-bd" style="display:flex;flex-direction:column;gap:12px">
+        @foreach ($baoCao->chiTiet as $ct)
+          <div>
+            <div style="font-weight:600;font-size:13px">
+              @if ($ct->duAn && ! $ct->duAn->trashed())
+                <a href="{{ route('du-an.show', $ct->du_an_id) }}">{{ $ct->duAn->ten }}</a>
+              @else
+                {{ $ct->duAn?->ten ?? '(dự án đã xoá)' }}
+              @endif
+            </div>
+            @if ($ct->tien_do !== null)
+              <div class="hint" style="margin:2px 0 0">Tiến độ {{ \App\Models\BaoCaoTuanDuAn::phanTramTienDo($ct->tien_do) }}</div>
+              <div class="tiendo"><i style="width:{{ min(100, $ct->tien_do) }}%"></i></div>
+            @endif
+            @if ($ct->giai_ngan_nam !== null)
+              <div class="hint" style="margin:4px 0 0">Giải ngân năm: {{ \App\Models\BaoCaoTuanDuAn::so($ct->giai_ngan_nam) }}@if ($ct->ke_hoach_von_nam)/{{ \App\Models\BaoCaoTuanDuAn::so($ct->ke_hoach_von_nam) }} tỷ ({{ \App\Models\BaoCaoTuanDuAn::phanTram($ct->giai_ngan_nam, $ct->ke_hoach_von_nam) }}%)@else tỷ @endif</div>
+            @endif
+            @if ($ct->luy_ke_giai_ngan !== null)
+              <div class="hint" style="margin:2px 0 0">Lũy kế: {{ \App\Models\BaoCaoTuanDuAn::so($ct->luy_ke_giai_ngan) }}@if ($ct->tong_muc_dau_tu)/{{ \App\Models\BaoCaoTuanDuAn::so($ct->tong_muc_dau_tu) }} tỷ ({{ \App\Models\BaoCaoTuanDuAn::phanTram($ct->luy_ke_giai_ngan, $ct->tong_muc_dau_tu) }}% TMĐT)@else tỷ @endif</div>
+            @endif
+          </div>
+        @endforeach
+      </div>
+    </div>
+  </div>
+</div>
+@endsection

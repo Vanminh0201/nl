@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>@yield('tieu_de', 'Quản lý dự án công nghiệp')</title>
+<link rel="stylesheet" href="{{ asset('css/app.css') }}?v={{ filemtime(public_path('css/app.css')) }}">
+@stack('dau_trang')
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="spacer"></span>
+    <nav>
+      <a href="{{ route('ban-do') }}" class="{{ request()->routeIs('ban-do') ? 'on' : '' }}">Bản đồ</a>
+      <a href="{{ route('du-an.index') }}" class="{{ request()->routeIs('du-an.*') ? 'on' : '' }}">Danh sách</a>
+      @php
+        // Quản trị: số báo cáo đang chờ tiếp nhận. Chủ đầu tư: số báo cáo bị yêu cầu bổ sung, cộng 1
+        // nếu chưa nộp báo cáo tuần này — nhắc việc ngay trên thanh menu ở mọi trang.
+        $nguoiDung = auth()->user();
+        $demBaoCao = 0;
+        if ($nguoiDung->vai_tro === 'quan_tri') {
+          $demBaoCao = \App\Models\BaoCaoTuan::where('trang_thai', 'da_nop')->count();
+        } elseif ($nguoiDung->vai_tro === 'chu_dau_tu' && $nguoiDung->duAn()->exists()) {
+          $kyNay = \App\Support\KyBaoCao::hienTai();
+          $canNopKyNay = ! $kyNay->somHon(\App\Support\KyBaoCao::batDauBaoCao($nguoiDung->created_at))
+            && ! $nguoiDung->baoCaoTuan()->trongKy($kyNay)->daGui()->exists();
+          $demBaoCao = $nguoiDung->baoCaoTuan()->where('trang_thai', 'yeu_cau_bo_sung')->count() + ($canNopKyNay ? 1 : 0);
+        }
+      @endphp
+      <a href="{{ route('bao-cao.index') }}" class="{{ request()->routeIs('bao-cao.*') ? 'on' : '' }}"
+         @if ($demBaoCao) title="{{ $nguoiDung->vai_tro === 'quan_tri' ? 'Báo cáo chờ tiếp nhận' : 'Báo cáo cần nộp hoặc bổ sung' }}" @endif>Báo cáo @if ($demBaoCao)<span class="nav-dem">{{ $demBaoCao }}</span>@endif</a>
+      @unless (auth()->user()->vai_tro === 'chu_dau_tu')
+        <a href="{{ route('thong-ke') }}" class="{{ request()->routeIs('thong-ke') ? 'on' : '' }}">Thống kê</a>
+        <a href="{{ route('lop-ha-tang.index') }}" class="{{ request()->routeIs('lop-ha-tang.*') ? 'on' : '' }}">Lớp hạ tầng</a>
+      @endunless
+      @if (auth()->user()->vai_tro === 'quan_tri')
+        <a href="{{ route('danh-muc.index') }}" class="{{ request()->routeIs('danh-muc.*') ? 'on' : '' }}">Danh mục</a>
+        <a href="{{ route('tai-khoan.index') }}" class="{{ request()->routeIs('tai-khoan.*') ? 'on' : '' }}">Tài khoản</a>
+      @endif
+    </nav>
+    @stack('thanh_menu')
+    <div class="muc-luc cai-dat">
+      <button type="button" class="muc-luc-nut" id="motCaiDat" aria-expanded="false">
+        <span class="mui">👤</span> Tài khoản
+      </button>
+      <div class="muc-luc-bang" id="caiDatBang" hidden>
+        <span class="me">{{ auth()->user()->name }} <small>({{ auth()->user()->ten_vai_tro }})</small></span>
+        <form method="post" action="{{ route('dang-xuat') }}">
+          @csrf
+          <button class="btn ghost sm" style="width:100%">Thoát</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  @if (session('thong_bao'))
+    <div class="flash">{{ session('thong_bao') }}</div>
+  @endif
+
+  <main>
+    @yield('noi_dung')
+  </main>
+</div>
+@stack('cuoi_trang')
+<script>
+(function () {
+  // Dùng chung cho mọi nhãn ẩn/hiện kiểu này trên thanh đầu trang (Mục lục, Cài đặt...) —
+  // mỗi khối ".muc-luc" tự có nút bấm + bảng riêng, không cần biết trước bao nhiêu khối.
+  var khoi = Array.prototype.slice.call(document.querySelectorAll('.muc-luc'));
+  khoi.forEach(function (k) {
+    var nut = k.querySelector('.muc-luc-nut');
+    var bang = k.querySelector('.muc-luc-bang');
+    if (!nut || !bang) return;
+    nut.addEventListener('click', function () {
+      var dangMo = !bang.hidden;
+      // Đóng các bảng khác đang mở trước khi mở bảng này, tránh chồng nhiều bảng cùng lúc.
+      khoi.forEach(function (k2) {
+        if (k2 !== k) {
+          var b2 = k2.querySelector('.muc-luc-bang'), n2 = k2.querySelector('.muc-luc-nut');
+          if (b2) b2.hidden = true;
+          if (n2) n2.setAttribute('aria-expanded', 'false');
+        }
+      });
+      bang.hidden = dangMo;
+      nut.setAttribute('aria-expanded', String(!dangMo));
+    });
+  });
+  document.addEventListener('click', function (e) {
+    khoi.forEach(function (k) {
+      var bang = k.querySelector('.muc-luc-bang'), nut = k.querySelector('.muc-luc-nut');
+      if (bang && !bang.hidden && !e.target.closest('.muc-luc')) {
+        bang.hidden = true;
+        if (nut) nut.setAttribute('aria-expanded', 'false');
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

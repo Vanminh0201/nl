@@ -1,0 +1,226 @@
+@extends('layouts.app')
+@section('tieu_de', 'Thống kê sản lượng điện')
+
+@php
+  use App\Support\BaoCaoSanLuong as SL;
+  $tr = fn (?float $kwh, int $le = 2) => $kwh === null ? '' : SL::so($kwh / 1e6, $le);
+  // Tổng các giá trị có số liệu; không có giá trị nào thì null (ô trống)
+  $cong = fn ($ds) => ($ds = collect($ds)->filter(fn ($v) => $v !== null))->isEmpty() ? null : $ds->sum();
+  $phanTram = fn (?float $p) => $p === null ? '' : ($p >= 0 ? '+' : '−').SL::so(abs($p), 1).'%';
+  $lopPt = fn (?float $p) => $p === null ? '' : ($p >= 0 ? 'sl-tang' : 'sl-giam');
+  $namTruoc = $nam - 1;
+  $coSoLieu = $kpi['luy_ke'] > 0;
+  $loc = array_filter(['nam' => $nam, 'loai_hinh' => $loaiHinh]);
+  // Dữ liệu biểu đồ (triệu kWh)
+  $mang = fn (array $a) => array_values(array_map(fn ($v) => $v === null ? null : round($v / 1e6, 3), $a));
+  $luyKe = function (array $a, int $den) { $t = 0; $r = []; foreach ($a as $th => $v) { $t += $v ?? 0; $r[] = $th <= $den ? round($t / 1e6, 3) : null; } return $r; };
+  $bieuDo = [
+    'thang' => ['nay' => $mang($theoThang[$nam]), 'truoc' => $mang($theoThang[$namTruoc])],
+    'luy_ke' => ['nay' => $luyKe($theoThang[$nam], $thangCuoi ?: 0), 'truoc' => $luyKe($theoThang[$namTruoc], 12)],
+    'loai_hinh' => collect($theoLoaiHinh)->map(fn ($a, $lh) => [
+      'nhan' => $dsLoaiHinh[$lh]->ten ?? $lh, 'mau' => $dsLoaiHinh[$lh]->mau ?? '#5d6b61',
+      'so' => array_map(fn ($t) => isset($a[$t]) ? round($a[$t] / 1e6, 3) : null, range(1, 12)),
+    ])->values(),
+    'top' => $bang->filter(fn ($h) => $h['tong'] > 0)->sortByDesc('tong')->take(15)->map(fn ($h) => [
+      'nhan' => $h['ten'], 'so' => round($h['tong'] / 1e6, 3), 'mau' => $dsLoaiHinh[$h['loai_hinh']]->mau ?? '#5d6b61',
+    ])->values(),
+    'chi_tiet' => $chiTiet ? collect($chiTiet['nam'])->map(fn ($a, $n) => ['nam' => $n, 'so' => $mang($a)])->values() : [],
+  ];
+  $stt = 0;
+@endphp
+
+@section('noi_dung')
+<div class="pad bc-trang sl-tk">
+  @include('bao-cao._tab', ['dangChon' => 'bao-cao.san-luong.thong-ke'])
+
+  <form method="get" class="thanhloc" style="margin:0">
+    <label>Năm
+      <select name="nam" onchange="this.form.submit()">
+        @foreach ($dsNam as $n)<option value="{{ $n }}" @selected($n === $nam)>{{ $n }}</option>@endforeach
+      </select>
+    </label>
+    <label>Loại hình
+      <select name="loai_hinh" onchange="this.form.submit()">
+        <option value="">Tất cả nguồn điện</option>
+        @foreach ($loaiHinhCo as $lh)<option value="{{ $lh }}" @selected($lh === $loaiHinh)>{{ $dsLoaiHinh[$lh]->ten ?? $lh }}</option>@endforeach
+      </select>
+    </label>
+    @if ($chiTiet)<input type="hidden" name="du_an" value="{{ $chiTiet['du_an']->id }}">@endif
+    <noscript><button class="btn primary">Xem</button></noscript>
+    <span class="grow"></span>
+    @if (auth()->user()->vai_tro !== 'chu_dau_tu')
+      <a href="{{ route('bao-cao.san-luong.index') }}" class="btn">@include('bao-cao._icon', ['ten' => 'san-luong'])Tình hình gửi báo cáo</a>
+    @endif
+    <a href="{{ route('bao-cao.san-luong.excel', $loc) }}" class="btn primary">@include('bao-cao._icon', ['ten' => 'tai'])Tải Excel</a>
+  </form>
+
+  <div class="bc-kpi">
+    <div class="bc-kpi-o k-tong {{ $coSoLieu ? '' : 'rong' }}">
+      <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => 'san-luong', 'co' => 21])</span>
+      <div class="bc-kpi-noi"><b>{{ $tr($kpi['luy_ke']) }}</b><span>Triệu kWh năm {{ $nam }}{{ $thangCuoi ? ' (T1–T'.$thangCuoi.')' : '' }}</span></div>
+    </div>
+    <div class="bc-kpi-o k-cho {{ $kpi['cung_ky'] ? '' : 'rong' }}">
+      <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => 'lich', 'co' => 21])</span>
+      <div class="bc-kpi-noi">
+        <b>{{ $tr($kpi['cung_ky']) }}</b><span>Cùng kỳ năm {{ $namTruoc }}</span>
+        @if ($kpi['so_cung_ky'] !== null)<small class="sl-kpi-phu"><i class="{{ $lopPt($kpi['so_cung_ky']) }}">{{ $phanTram($kpi['so_cung_ky']) }}</i> so cùng kỳ</small>@endif
+      </div>
+    </div>
+    <div class="bc-kpi-o k-xong {{ $kpi['thang_gan_nhat'] ? '' : 'rong' }}">
+      <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => 'thang', 'co' => 21])</span>
+      <div class="bc-kpi-noi"><b>{{ $tr($kpi['thang_gan_nhat']) }}</b><span>Tháng {{ $thangCuoi ?: '—' }}/{{ $nam }}</span></div>
+    </div>
+    <div class="bc-kpi-o k-tong">
+      <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => 'xong', 'co' => 21])</span>
+      <div class="bc-kpi-noi"><b>{{ $kpi['du_an_thang_gan_nhat'] }}/{{ $kpi['so_du_an'] }}</b><span>Dự án có số liệu tháng {{ $thangCuoi ?: '—' }}</span></div>
+    </div>
+    <div class="bc-kpi-o k-tong">
+      <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => 'loai-hinh', 'co' => 21])</span>
+      <div class="bc-kpi-noi"><b>{{ SL::so($kpi['cong_suat'], 1) }}</b><span>MW đang vận hành</span></div>
+    </div>
+  </div>
+
+  @if ($chiTiet)
+    @php $ctNam = $chiTiet['nam']; $d = $chiTiet['du_an']; @endphp
+    <div class="sheet">
+      <div class="sheet-hd bc-phan-hd">
+        <div class="bc-phan-giua">
+          <h2>{{ $d->ten }}</h2>
+          <div class="hint" style="margin-top:2px">{{ $dsLoaiHinh[$d->loai_hinh]->ten ?? $d->loai_hinh }} · {{ SL::so($d->cong_suat_mw, 2) }} MW · triệu kWh</div>
+        </div>
+        <div class="bc-phan-phai"><a href="{{ route('bao-cao.san-luong.thong-ke', $loc) }}" class="btn">Đóng</a></div>
+      </div>
+      @if ($ctNam)
+        <div class="sheet-bd"><div class="tk-khung"><canvas id="bdChiTiet"></canvas></div></div>
+        <div class="tablewrap" style="border:0;border-radius:0">
+          <table class="sl-bang sl-so-bang">
+            <thead><tr><th>Năm</th>@for ($t = 1; $t <= 12; $t++)<th class="num">T{{ $t }}</th>@endfor<th class="num">Cả năm</th><th class="num">So năm trước</th></tr></thead>
+            <tbody>
+            @foreach ($ctNam as $n => $a)
+              @php
+                $tongN = $cong($a);
+                $soThang = count(array_filter($a, fn ($v) => $v !== null));
+                $truocN = $ctNam[$n - 1] ?? null;
+                $ckN = $truocN ? array_sum(array_intersect_key(array_filter($truocN), array_filter($a, fn ($v) => $v !== null))) : 0;
+                $ptN = $ckN > 0 ? ($tongN / $ckN - 1) * 100 : null;
+              @endphp
+              <tr>
+                <td><b>{{ $n }}</b>@if ($soThang < 12)<div class="sl-phu">{{ $soThang }} tháng</div>@endif</td>
+                @foreach ($a as $v)<td class="num">{{ $tr($v) }}</td>@endforeach
+                <td class="num"><b>{{ $tr($tongN) }}</b></td>
+                <td class="num {{ $lopPt($ptN) }}" title="So cùng các tháng năm trước">{{ $phanTram($ptN) }}</td>
+              </tr>
+            @endforeach
+            </tbody>
+          </table>
+        </div>
+      @else
+        <div class="sheet-bd"><p class="trong" style="padding:0">Dự án chưa có số liệu sản lượng.</p></div>
+      @endif
+    </div>
+  @endif
+
+  @if (! $coSoLieu)
+    <div class="sheet"><div class="sheet-bd"><p class="trong" style="padding:0">Chưa có số liệu sản lượng năm {{ $nam }}{{ $loaiHinh ? ' của loại hình này' : '' }}.</p></div></div>
+  @else
+    <div class="tk-luoi">
+      <div class="sheet"><div class="sheet-hd"><h2>Sản lượng theo tháng: {{ $nam }} so với {{ $namTruoc }} (triệu kWh)</h2></div>
+        <div class="sheet-bd"><div class="tk-khung"><canvas id="bdThang"></canvas></div></div></div>
+      <div class="sheet"><div class="sheet-hd"><h2>Sản lượng lũy kế (triệu kWh)</h2></div>
+        <div class="sheet-bd"><div class="tk-khung"><canvas id="bdLuyKe"></canvas></div></div></div>
+      <div class="sheet"><div class="sheet-hd"><h2>Sản lượng {{ $nam }} theo loại hình (triệu kWh)</h2></div>
+        <div class="sheet-bd"><div class="tk-khung"><canvas id="bdLoaiHinh"></canvas></div></div></div>
+      <div class="sheet"><div class="sheet-hd"><h2>Dự án có sản lượng {{ $nam }} lớn nhất (triệu kWh)</h2></div>
+        <div class="sheet-bd"><div class="tk-khung tk-khung-cao" style="height:{{ max(220, $bieuDo['top']->count() * 26 + 40) }}px"><canvas id="bdTop"></canvas></div></div></div>
+    </div>
+
+    <div class="sheet">
+      <div class="sheet-hd">
+        <h2>Sản lượng từng dự án năm {{ $nam }} (triệu kWh)</h2>
+        @if ($thangCuoi)<div class="hint" style="margin-top:2px">Cùng kỳ: tháng 1–{{ $thangCuoi }}/{{ $namTruoc }} · giờ phát quy đổi = sản lượng ÷ công suất</div>@endif
+      </div>
+      <div class="tablewrap" style="border:0;border-radius:0">
+        <table class="sl-bang sl-so-bang">
+          <thead>
+            <tr>
+              <th class="giua">STT</th><th>Dự án</th><th class="num">MW</th>
+              @for ($t = 1; $t <= 12; $t++)<th class="num">T{{ $t }}</th>@endfor
+              <th class="num">Cả năm</th><th class="num">Cùng kỳ</th><th class="num">±%</th><th class="num">Giờ phát</th><th class="num" title="So sản lượng năm theo hồ sơ dự án">% thiết kế</th>
+            </tr>
+          </thead>
+          <tbody>
+          @foreach ($nhomBang as $lh => $ds)
+            <tr class="sl-nhom">
+              <td></td><td>{{ $dsLoaiHinh[$lh]->ten ?? $lh }} · {{ $ds->count() }} dự án</td><td class="num">{{ SL::so($ds->sum('mw'), 1) }}</td>
+              @for ($t = 1; $t <= 12; $t++)<td class="num">{{ $tr($cong($ds->map(fn ($h) => $h['thang'][$t] ?? null))) }}</td>@endfor
+              @php $tN = $ds->sum('so_thang') ? $ds->sum('tong') : null; $cN = $ds->sum('cung_ky') ?: null; $pN = $cN > 0 && $tN > 0 ? ($tN / $cN - 1) * 100 : null; @endphp
+              <td class="num">{{ $tr($tN) }}</td><td class="num">{{ $tr($cN) }}</td><td class="num {{ $lopPt($pN) }}">{{ $phanTram($pN) }}</td><td></td><td></td>
+            </tr>
+            @foreach ($ds as $h)
+              <tr class="{{ $chiTiet && $chiTiet['du_an']->id === $h['id'] ? 'sl-chon' : '' }}">
+                <td class="giua">{{ ++$stt }}</td>
+                <td><a href="{{ route('bao-cao.san-luong.thong-ke', $loc + ['du_an' => $h['id']]) }}" class="sl-ten">{{ $h['ten'] }}</a></td>
+                <td class="num">{{ SL::so($h['mw'], 1) }}</td>
+                @for ($t = 1; $t <= 12; $t++)<td class="num">{{ $tr($h['thang'][$t] ?? null) }}</td>@endfor
+                <td class="num"><b>{{ $tr($h['so_thang'] ? $h['tong'] : null) }}</b></td>
+                <td class="num sl-cu">{{ $tr($h['cung_ky'] ?: null) }}</td>
+                <td class="num {{ $lopPt($h['so_cung_ky']) }}">{{ $phanTram($h['so_cung_ky']) }}</td>
+                <td class="num">{{ $h['gio'] ? SL::so($h['gio']) : '' }}</td>
+                <td class="num">{{ $h['thiet_ke'] ? SL::so($h['thiet_ke'], 1).'%' : '' }}</td>
+              </tr>
+            @endforeach
+          @endforeach
+          <tr class="sl-tong">
+            <td></td><td>Tổng cộng</td><td class="num">{{ SL::so($bang->sum('mw'), 1) }}</td>
+            @for ($t = 1; $t <= 12; $t++)<td class="num">{{ $tr($theoThang[$nam][$t]) }}</td>@endfor
+            <td class="num">{{ $tr($kpi['luy_ke']) }}</td><td class="num">{{ $tr($kpi['cung_ky']) }}</td>
+            <td class="num {{ $lopPt($kpi['so_cung_ky']) }}">{{ $phanTram($kpi['so_cung_ky']) }}</td><td></td><td></td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  @endif
+</div>
+@endsection
+
+@push('cuoi_trang')
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
+<script>
+(function () {
+  if (typeof Chart === 'undefined') return;
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.color = '#4a5866';
+  var bd = @json($bieuDo);
+  var thang = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12'];
+  var so = function (v) { return v === null || v === undefined ? '—' : v.toLocaleString('vi-VN', { maximumFractionDigits: 2 }); };
+  var truc = { beginAtZero: true, grid: { color: '#e2e6e1' }, ticks: { callback: function (v) { return v.toLocaleString('vi-VN'); } } };
+  var goiY = { callbacks: { label: function (c) { return (c.dataset.label ? c.dataset.label + ': ' : '') + so(c.parsed.y !== undefined && c.chart.options.indexAxis !== 'y' ? c.parsed.y : c.parsed.x) + ' triệu kWh'; } } };
+  function ve(id, cauHinh) { var el = document.getElementById(id); if (el) new Chart(el, cauHinh); }
+  var chung = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } };
+
+  ve('bdThang', { type: 'bar', data: { labels: thang, datasets: [
+    { label: '{{ $nam }}', data: bd.thang.nay, backgroundColor: '#1f4b6e', borderRadius: 3, maxBarThickness: 26 },
+    { label: '{{ $namTruoc }}', data: bd.thang.truoc, backgroundColor: '#b7c6d2', borderRadius: 3, maxBarThickness: 26 }
+  ] }, options: Object.assign({}, chung, { plugins: { tooltip: goiY, legend: { labels: { boxWidth: 12 } } }, scales: { y: truc, x: { grid: { display: false } } } }) });
+
+  ve('bdLuyKe', { type: 'line', data: { labels: thang, datasets: [
+    { label: '{{ $nam }}', data: bd.luy_ke.nay, borderColor: '#1f4b6e', backgroundColor: 'rgba(31,75,110,.12)', fill: true, tension: .25, pointRadius: 3 },
+    { label: '{{ $namTruoc }}', data: bd.luy_ke.truoc, borderColor: '#96a8b6', borderDash: [5, 4], tension: .25, pointRadius: 2 }
+  ] }, options: Object.assign({}, chung, { plugins: { tooltip: goiY, legend: { labels: { boxWidth: 12 } } }, scales: { y: truc, x: { grid: { display: false } } } }) });
+
+  ve('bdLoaiHinh', { type: 'bar', data: { labels: thang, datasets: bd.loai_hinh.map(function (l) {
+    return { label: l.nhan, data: l.so, backgroundColor: l.mau, borderRadius: 2, maxBarThickness: 30 };
+  }) }, options: Object.assign({}, chung, { plugins: { tooltip: goiY, legend: { labels: { boxWidth: 12 } } }, scales: { x: { stacked: true, grid: { display: false } }, y: Object.assign({ stacked: true }, truc) } }) });
+
+  ve('bdTop', { type: 'bar', data: { labels: bd.top.map(function (r) { return r.nhan; }), datasets: [
+    { data: bd.top.map(function (r) { return r.so; }), backgroundColor: bd.top.map(function (r) { return r.mau; }), borderRadius: 3, maxBarThickness: 20 }
+  ] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: goiY }, scales: { x: truc, y: { grid: { display: false } } } } });
+
+  var bangMau = ['#1f4b6e', '#c2185b', '#2f6b4f', '#b4531c', '#7a60fb', '#96701a', '#1d6f86', '#5d6b61'];
+  ve('bdChiTiet', { type: 'line', data: { labels: thang, datasets: (bd.chi_tiet || []).map(function (n, i) {
+    return { label: String(n.nam), data: n.so, borderColor: bangMau[i % bangMau.length], backgroundColor: bangMau[i % bangMau.length], tension: .25, pointRadius: 3, borderWidth: i === 0 ? 3 : 2 };
+  }) }, options: Object.assign({}, chung, { plugins: { tooltip: goiY, legend: { labels: { boxWidth: 12 } } }, scales: { y: truc, x: { grid: { display: false } } } }) });
+})();
+</script>
+@endpush

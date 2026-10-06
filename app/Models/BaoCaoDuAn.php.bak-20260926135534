@@ -1,0 +1,31 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class BaoCaoDuAn extends Model
+{
+    protected $table = 'bao_cao_du_an';
+
+    protected $guarded = ['id'];
+
+    protected $casts = [
+        'pl_chu_truong' => 'boolean',
+        'pl_dat_dai' => 'boolean',
+        'pl_moi_truong' => 'boolean',
+        'pl_pccc' => 'boolean',
+        'pl_xay_dung' => 'boolean',
+    ];
+
+    public function duAn(): BelongsTo
+    {
+        return $this->belongsTo(DuAn::class, 'du_an_id')->withTrashed();
+    }
+
+    public function nguoiBaoCao(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'nguoi_bao_cao_id');
+    }
+}

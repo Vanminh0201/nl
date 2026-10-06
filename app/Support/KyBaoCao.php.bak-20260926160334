@@ -1,0 +1,129 @@
+<?php
+
+namespace App\Support;
+
+use Carbon\CarbonImmutable;
+
+/** Kỳ báo cáo tuần: tuần ISO (thứ Hai → Chủ nhật), tính theo giờ Việt Nam vì máy chủ chạy UTC. */
+final class KyBaoCao
+{
+    public const MUI_GIO = 'Asia/Ho_Chi_Minh';
+
+    public readonly CarbonImmutable $tuNgay;
+
+    public readonly CarbonImmutable $denNgay;
+
+    private function __construct(public readonly int $nam, public readonly int $tuan)
+    {
+        $this->tuNgay = CarbonImmutable::now(self::MUI_GIO)->setISODate($nam, $tuan, 1)->startOfDay();
+        $this->denNgay = $this->tuNgay->addDays(6);
+    }
+
+    public static function hienTai(): self
+    {
+        return self::chuaNgay(CarbonImmutable::now(self::MUI_GIO));
+    }
+
+    public static function chuaNgay(CarbonImmutable $ngay): self
+    {
+        return new self($ngay->isoWeekYear, $ngay->isoWeek);
+    }
+
+    public static function tuSo(int $nam, int $tuan): self
+    {
+        return new self($nam, $tuan);
+    }
+
+    /** Đọc mã dạng "2026-W39" từ URL/form; sai định dạng hoặc tuần không tồn tại thì trả null. */
+    public static function tuMa(?string $ma): ?self
+    {
+        if (! $ma || ! preg_match('/^(\d{4})-W(\d{1,2})$/', $ma, $m)) {
+            return null;
+        }
+        $ky = new self((int) $m[1], (int) $m[2]);
+
+        // setISODate tự tràn sang năm sau khi tuần vượt quá số tuần của năm (VD 2026-W60)
+        return $ky->tuNgay->isoWeekYear === $ky->nam && $ky->tuNgay->isoWeek === $ky->tuan ? $ky : null;
+    }
+
+    public function ma(): string
+    {
+        return sprintf('%d-W%02d', $this->nam, $this->tuan);
+    }
+
+    public function ten(): string
+    {
+        return "Tuần {$this->tuan}/{$this->nam}";
+    }
+
+    public function khoang(): string
+    {
+        return $this->tuNgay->format('d/m').' – '.$this->denNgay->format('d/m/Y');
+    }
+
+    /** Năm dương lịch dùng cho số liệu giải ngân "năm" — tuần 1 có thể bắt đầu từ cuối tháng 12 năm trước. */
+    public function namTaiChinh(): int
+    {
+        return $this->denNgay->year;
+    }
+
+    public function truoc(): self
+    {
+        return self::chuaNgay($this->tuNgay->subWeek());
+    }
+
+    public function sau(): self
+    {
+        return self::chuaNgay($this->tuNgay->addWeek());
+    }
+
+    public function laTuongLai(): bool
+    {
+        return $this->tuNgay->greaterThan(self::hienTai()->tuNgay);
+    }
+
+    public function laHienTai(): bool
+    {
+        return $this->ma() === self::hienTai()->ma();
+    }
+
+    public function bang(self $khac): bool
+    {
+        return $this->ma() === $khac->ma();
+    }
+
+    public function somHon(self $khac): bool
+    {
+        return $this->tuNgay->lessThan($khac->tuNgay);
+    }
+
+    /**
+     * Kỳ đầu tiên tài khoản phải báo cáo: muộn hơn giữa tuần bắt đầu áp dụng (cấu hình) và tuần
+     * tạo tài khoản — tuần trước đó không tính là "không nộp".
+     */
+    public static function batDauBaoCao(?\DateTimeInterface $taoTaiKhoan): self
+    {
+        $ky = self::tuMa(config('duan.bao_cao.tuan_bat_dau')) ?? self::hienTai();
+        if ($taoTaiKhoan) {
+            $kyTao = self::chuaNgay(CarbonImmutable::instance($taoTaiKhoan)->setTimezone(self::MUI_GIO));
+            if ($ky->somHon($kyTao)) {
+                $ky = $kyTao;
+            }
+        }
+
+        return $ky;
+    }
+
+    /** $soTuan kỳ liên tiếp kết thúc ở kỳ này, xếp từ cũ đến mới. */
+    public function ganDay(int $soTuan): array
+    {
+        $ds = [];
+        $ky = $this;
+        for ($i = 0; $i < $soTuan; $i++) {
+            array_unshift($ds, $ky);
+            $ky = $ky->truoc();
+        }
+
+        return $ds;
+    }
+}

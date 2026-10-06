@@ -1,0 +1,174 @@
+@extends('layouts.app')
+@section('tieu_de', 'Tài khoản')
+
+@section('noi_dung')
+<div class="pad">
+  <div class="sheet">
+    <div class="sheet-hd" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <h2>Danh sách tài khoản</h2>
+      <button type="button" class="btn primary sm" onclick="document.getElementById('dlgThem').showModal()">+ Thêm tài khoản</button>
+    </div>
+    <div class="sheet-bd" style="padding:12px">
+      @if ($errors->any())
+        <div class="loi" style="margin-bottom:12px">{{ $errors->first() }}</div>
+      @endif
+
+      <h3 style="font-size:13px;margin:0 0 8px">Các loại tài khoản</h3>
+      <div class="chips" style="margin-bottom:16px">
+        @foreach ($vaiTro as $ma => $ten)
+          <span class="tag" title="{{ [
+            'quan_tri' => 'Toàn quyền: thêm/sửa/xoá dự án, quản lý lớp hạ tầng, danh mục và tài khoản.',
+            'nhap_lieu' => 'Thêm/sửa dự án và lớp hạ tầng, không xoá được và không quản lý danh mục/tài khoản.',
+            'xem' => 'Chỉ xem danh sách, bản đồ, thống kê — không thêm/sửa/xoá được gì.',
+            'chu_dau_tu' => 'Chỉ thấy và nộp báo cáo tiến độ cho (các) dự án được gán riêng cho mình.',
+          ][$ma] ?? '' }}">
+            <i style="background:var(--primary)"></i>{{ $ten }}
+          </span>
+        @endforeach
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Tên</th><th>Thư điện tử</th><th>Vai trò</th><th>Đơn vị</th><th>Trạng thái</th><th></th></tr>
+          </thead>
+          <tbody>
+          @forelse ($dsTaiKhoan as $t)
+            <tr>
+              <td><b>{{ $t->name }}</b>{{ $t->id === auth()->id() ? ' (bạn)' : '' }}</td>
+              <td>{{ $t->email }}</td>
+              <td>{{ $t->ten_vai_tro }}</td>
+              <td>
+                {{ $t->don_vi }}
+                @if ($t->vai_tro === 'chu_dau_tu' && $t->duAn->isNotEmpty())
+                  <div class="hint" style="margin-top:2px">Dự án: {{ $t->duAn->pluck('ten')->join(', ') }}</div>
+                @endif
+              </td>
+              <td>
+                @unless ($t->da_duyet)
+                  <span class="chip cho">Chờ duyệt</span>
+                @endunless
+              </td>
+              <td style="white-space:nowrap">
+                @unless ($t->da_duyet)
+                  <form method="post" action="{{ route('tai-khoan.duyet', $t) }}" style="display:inline">
+                    @csrf @method('patch')
+                    <button class="btn sm primary">Duyệt</button>
+                  </form>
+                @endunless
+                <button type="button" class="btn sm" data-sua
+                        data-action="{{ route('tai-khoan.update', $t) }}"
+                        data-name="{{ $t->name }}" data-email="{{ $t->email }}"
+                        data-vai-tro="{{ $t->vai_tro }}" data-don-vi="{{ $t->don_vi }}">Sửa</button>
+                <form method="post" action="{{ route('tai-khoan.destroy', $t) }}" style="display:inline"
+                      onsubmit="return confirm('Xoá tài khoản {{ $t->name }}?')">
+                  @csrf @method('delete')
+                  <button class="btn sm danger">Xoá</button>
+                </form>
+              </td>
+            </tr>
+          @empty
+            <tr><td colspan="6" style="padding:26px;color:var(--ink-2)">Chưa có tài khoản nào.</td></tr>
+          @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlgSua">
+  <form method="post" id="formSua">
+    @csrf @method('put')
+    <div class="sheet-hd"><h2 style="font-size:14px">Sửa tài khoản</h2></div>
+    <div class="sheet-bd">
+      <div class="grid">
+        <label class="f full">Tên
+          <input name="name" id="suaName" required maxlength="255">
+        </label>
+        <label class="f full">Thư điện tử
+          <input type="email" name="email" id="suaEmail" required maxlength="255">
+        </label>
+        <label class="f full">Mật khẩu mới (để trống nếu không đổi)
+          <input type="password" name="password" autocomplete="new-password" minlength="6">
+        </label>
+        <label class="f">Vai trò
+          <select name="vai_tro" id="suaVaiTro" required>
+            @foreach ($vaiTro as $ma => $ten)
+              <option value="{{ $ma }}">{{ $ten }}</option>
+            @endforeach
+          </select>
+        </label>
+        <label class="f">Đơn vị
+          <input name="don_vi" id="suaDonVi" maxlength="255" placeholder="VD: Công ty CP Điện gió Hướng Linh 5">
+        </label>
+      </div>
+      <p class="hint">Vai trò "Chủ đầu tư" dùng để gán cho tài khoản của nhà đầu tư — chỉ thấy dự án được gán riêng ở màn hình sửa dự án.</p>
+    </div>
+    <div class="sheet-ft">
+      <button type="button" class="btn" onclick="document.getElementById('dlgSua').close()">Huỷ</button>
+      <button class="btn primary">Lưu</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgThem">
+  <form method="post" action="{{ route('tai-khoan.store') }}">
+    @csrf
+    <div class="sheet-hd"><h2 style="font-size:14px">Thêm tài khoản</h2></div>
+    <div class="sheet-bd">
+      <div class="grid">
+        <label class="f full">Tên
+          <input name="name" value="{{ old('name') }}" required maxlength="255">
+        </label>
+        <label class="f full">Thư điện tử
+          <input type="email" name="email" value="{{ old('email') }}" required maxlength="255">
+        </label>
+        <label class="f full">Mật khẩu
+          <input type="password" name="password" autocomplete="new-password" required minlength="6">
+        </label>
+        <label class="f">Vai trò
+          <select name="vai_tro" required>
+            @foreach ($vaiTro as $ma => $ten)
+              <option value="{{ $ma }}" @selected(old('vai_tro') === $ma)>{{ $ten }}</option>
+            @endforeach
+          </select>
+        </label>
+        <label class="f">Đơn vị
+          <input name="don_vi" value="{{ old('don_vi') }}" maxlength="255" placeholder="VD: Công ty CP Điện gió Hướng Linh 5">
+        </label>
+      </div>
+    </div>
+    <div class="sheet-ft">
+      <button type="button" class="btn" onclick="document.getElementById('dlgThem').close()">Huỷ</button>
+      <button class="btn primary">Thêm</button>
+    </div>
+  </form>
+</dialog>
+
+@if ($errors->has('name') || $errors->has('email') || $errors->has('password'))
+  {{-- Chỉ tự mở lại hộp "Thêm tài khoản" khi lỗi đến từ chính form này — lỗi bảo vệ khi
+       sửa/xoá (tự đổi vai trò, tự xoá chính mình...) dùng khoá lỗi riêng, không trùng đây. --}}
+  <script>document.getElementById('dlgThem').showModal();</script>
+@endif
+
+@push('cuoi_trang')
+<script>
+(function () {
+  var dlgSua = document.getElementById('dlgSua');
+  var formSua = document.getElementById('formSua');
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-sua]'), function (btn) {
+    btn.addEventListener('click', function () {
+      formSua.action = btn.dataset.action;
+      document.getElementById('suaName').value = btn.dataset.name || '';
+      document.getElementById('suaEmail').value = btn.dataset.email || '';
+      document.getElementById('suaVaiTro').value = btn.dataset.vaiTro || '';
+      document.getElementById('suaDonVi').value = btn.dataset.donVi || '';
+      dlgSua.showModal();
+    });
+  });
+})();
+</script>
+@endpush
+@endsection

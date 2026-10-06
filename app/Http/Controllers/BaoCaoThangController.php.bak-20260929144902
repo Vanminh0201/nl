@@ -1,0 +1,458 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\BaoCaoThang;
+use App\Models\BaoCaoThangDuAn;
+use App\Models\BaoCaoTuanDuAn;
+use App\Models\CaiDat;
+use App\Models\DuAn;
+use App\Models\User;
+use App\Services\XuatExcelBaoCaoThang;
+use App\Support\KyThang;
+use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+
+/**
+ * Báo cáo tháng theo mẫu bảng "Tình hình triển khai quy hoạch điện VIII điều chỉnh, quy hoạch tỉnh
+ * điều chỉnh": chủ đầu tư lập 1 báo cáo/tháng, mỗi dự án 1 dòng với đúng các cột của mẫu; Sở tiếp
+ * nhận/yêu cầu bổ sung, phân nhóm dự án rồi tải bảng tổng hợp Excel theo mẫu (mỗi loại hình 1 sheet).
+ */
+class BaoCaoThangController extends Controller
+{
+    /** Các cột chữ chủ đầu tư nhập cho mỗi dự án */
+    private const TRUONG = ['dia_diem', 'cong_suat', 'chu_dau_tu', 'phap_ly', 'tien_do_cod', 'tien_do_thuc_te',
+        'tinh_hinh', 'phuong_an', 'ghi_chu'];
+
+    /** Các ô so với tháng trước để đánh dấu "giống tháng trước — cần rà soát" */
+    private const SO_SANH = ['phap_ly', 'tien_do_cod', 'tien_do_thuc_te', 'tinh_hinh', 'phuong_an', 'ghi_chu'];
+
+    public function index(Request $request)
+    {
+        $user = $request->user();
+
+        return $user->vai_tro === 'chu_dau_tu' ? $this->trangChuDauTu($user) : $this->trangQuanLy($request);
+    }
+
+    private function trangChuDauTu(User $user)
+    {
+        $kyNay = KyThang::hienTai();
+
+        return view('bao-cao.thang.chu-dau-tu', [
+            'kyNay' => $kyNay,
+            'batDau' => KyThang::batDauBaoCao($user->created_at),
+            'phaiBaoCao' => $user->phaiBaoCaoThang(),
+            'baoCaoKyNay' => $user->baoCaoThang()->trongKy($kyNay)->first(),
+            'canBoSung' => $user->baoCaoThang()->where('trang_thai', 'yeu_cau_bo_sung')->orderByDesc('nam')->orderByDesc('thang')->get(),
+            'dsDuAn' => $user->duAn()->orderBy('ten')->get(['id', 'ten']),
+            'dsBaoCao' => $user->baoCaoThang()->withCount('chiTiet')->orderByDesc('nam')->orderByDesc('thang')->paginate(20),
+        ]);
+    }
+
+    private function trangQuanLy(Request $request)
+    {
+        $ky = KyThang::tuMa($request->query('ky')) ?? KyThang::hienTai();
+        if ($ky->laTuongLai()) {
+            $ky = KyThang::hienTai();
+        }
+
+        $dsChuDauTu = $this->chuDauTuPhaiBaoCao();
+        $baoCaoKy = BaoCaoThang::with(['nguoiBaoCao', 'nguoiXuLy', 'chiTiet.duAn'])->trongKy($ky)->daGui()->get()
+            ->keyBy('nguoi_bao_cao_id');
+        $thieu = $baoCaoKy->keys()->diff($dsChuDauTu->pluck('id'));
+        if ($thieu->isNotEmpty()) {
+            $dsChuDauTu = $dsChuDauTu->concat(User::with('duAn')->whereIn('id', $thieu)->get())
+                ->sortBy(fn (User $u) => $u->don_vi ?: $u->name)->values();
+        }
+        $phaiNop = $dsChuDauTu->filter(fn (User $u) => ! $ky->somHon(KyThang::batDauBaoCao($u->created_at)) || $baoCaoKy->has($u->id));
+
+        $cacKy = $ky->ganDay((int) config('duan.bao_cao_thang.so_thang_theo_doi', 6));
+        $theoDoi = BaoCaoThang::daGui()
+            ->where(fn ($q) => $q->where('nam', '>', $cacKy[0]->nam)->orWhere(fn ($q) => $q->where('nam', $cacKy[0]->nam)->where('thang', '>=', $cacKy[0]->thang)))
+            ->get(['id', 'nguoi_bao_cao_id', 'nam', 'thang', 'trang_thai'])
+            ->groupBy('nguoi_bao_cao_id')
+            ->map(fn (Collection $ds) => $ds->keyBy(fn (BaoCaoThang $b) => $b->ky()->ma()));
+
+        $dsMuc = $this->dongTongHop($baoCaoKy->values());
+        $ganNhat = BaoCaoThang::daGui()->whereIn('nguoi_bao_cao_id', $dsChuDauTu->pluck('id'))
+            ->orderByDesc('nam')->orderByDesc('thang')->get(['id', 'nguoi_bao_cao_id', 'nam', 'thang', 'trang_thai'])
+            ->unique('nguoi_bao_cao_id')->keyBy('nguoi_bao_cao_id');
+
+        return view('bao-cao.thang.quan-ly', [
+            'ky' => $ky,
+            'dsKyChon' => KyThang::hienTai()->ganDay(18),
+            'hang' => $dsChuDauTu->map(fn (User $u) => [
+                'nguoi' => $u,
+                'bao_cao' => $baoCaoKy->get($u->id),
+                'bat_dau' => KyThang::batDauBaoCao($u->created_at),
+                'gan_nhat' => $ganNhat->get($u->id),
+            ]),
+            'dem' => [
+                'phai_nop' => $phaiNop->count(),
+                'cho' => $baoCaoKy->where('trang_thai', 'da_nop')->count(),
+                'tiep_nhan' => $baoCaoKy->where('trang_thai', 'da_tiep_nhan')->count(),
+                'bo_sung' => $baoCaoKy->where('trang_thai', 'yeu_cau_bo_sung')->count(),
+                'chua_nop' => $phaiNop->count() - $baoCaoKy->count(),
+            ],
+            'cauTruc' => app(XuatExcelBaoCaoThang::class)->cauTruc($dsMuc),
+            'ghiChu' => CaiDat::layJson($this->khoaGhiChu($ky)),
+            'choTiepNhanKyKhac' => BaoCaoThang::with('nguoiBaoCao')->where('trang_thai', 'da_nop')
+                ->where(fn ($q) => $q->where('nam', '!=', $ky->nam)->orWhere('thang', '!=', $ky->thang))
+                ->orderBy('nam')->orderBy('thang')->get(),
+            'cacKy' => $cacKy,
+            'theoDoi' => $theoDoi,
+        ]);
+    }
+
+    public function soan(Request $request)
+    {
+        $user = $this->chiChuDauTu($request);
+        $ky = KyThang::tuMa($request->query('ky')) ?? KyThang::hienTai();
+        abort_if($ky->laTuongLai(), 404);
+
+        $baoCao = $user->baoCaoThang()->trongKy($ky)->with('chiTiet')->first();
+        if ($baoCao && ! $baoCao->conSuaDuoc()) {
+            return redirect()->route('bao-cao.thang.show', $baoCao)
+                ->with('thong_bao', 'Báo cáo '.mb_strtolower($ky->ten()).' đã được Sở tiếp nhận nên không sửa được nữa.');
+        }
+
+        $dsDuAn = $user->duAn()->with('vanBan')->orderBy('ten')->get();
+        if ($dsDuAn->isEmpty()) {
+            return redirect()->route('bao-cao.thang.index')
+                ->with('thong_bao', 'Tài khoản chưa được gán dự án nào — liên hệ Sở Công Thương để được gán dự án trước khi lập báo cáo.');
+        }
+
+        // Như báo cáo tuần: lần đầu mở tháng mới thì chép sẵn nội dung tháng gần nhất để chỉ sửa chỗ thay đổi
+        $truoc = $user->baoCaoThang()->with('chiTiet')->where(fn ($q) => $this->truocKy($q, $ky))
+            ->orderByDesc('nam')->orderByDesc('thang')->first();
+        $mucCu = BaoCaoThangDuAn::query()
+            ->join('bao_cao_thang', 'bao_cao_thang.id', '=', 'bao_cao_thang_du_an.bao_cao_thang_id')
+            ->where('bao_cao_thang.nguoi_bao_cao_id', $user->id)
+            ->where(fn ($q) => $this->truocKy($q, $ky, 'bao_cao_thang.'))
+            ->whereIn('bao_cao_thang_du_an.du_an_id', $dsDuAn->pluck('id'))
+            ->orderByDesc('bao_cao_thang.nam')->orderByDesc('bao_cao_thang.thang')
+            ->get(['bao_cao_thang_du_an.*', 'bao_cao_thang.nam as nam_ky', 'bao_cao_thang.thang as thang_ky'])
+            ->unique('du_an_id')->keyBy('du_an_id');
+        // Chưa có báo cáo tháng nào: lấy tình hình từ báo cáo tuần gần nhất của dự án làm nền
+        $tuanCu = BaoCaoTuanDuAn::query()
+            ->join('bao_cao_tuan', 'bao_cao_tuan.id', '=', 'bao_cao_tuan_du_an.bao_cao_tuan_id')
+            ->where('bao_cao_tuan.nguoi_bao_cao_id', $user->id)
+            ->whereIn('bao_cao_tuan_du_an.du_an_id', $dsDuAn->pluck('id'))
+            ->orderByDesc('bao_cao_tuan.tu_ngay')
+            ->get(['bao_cao_tuan_du_an.*'])
+            ->unique('du_an_id')->keyBy('du_an_id');
+        $mucHienTai = $baoCao?->chiTiet->keyBy('du_an_id') ?? collect();
+
+        $muc = $dsDuAn->map(function (DuAn $d) use ($baoCao, $truoc, $mucHienTai, $mucCu, $tuanCu, $user) {
+            $m = $mucHienTai->get($d->id);
+            $cu = $mucCu->get($d->id);
+            $nguon = $m ?? $cu;
+
+            $gt = [];
+            foreach ([...self::TRUONG, 'cod_nam', 'cod_ky'] as $cot) {
+                $gt[$cot] = $nguon?->{$cot};
+            }
+            if (! $nguon) {
+                $gt = array_merge($gt, $this->giaTriTuDuAn($d, $user, $tuanCu->get($d->id)));
+            }
+
+            $co = $baoCao ? $m !== null : ($truoc === null || $cu === null || $truoc->chiTiet->contains('du_an_id', $d->id));
+
+            $soSanh = null;
+            if ($cu) {
+                $soSanh = ['ky' => KyThang::tuSo($cu->nam_ky, $cu->thang_ky)->ten()];
+                foreach (self::SO_SANH as $cot) {
+                    $soSanh[$cot] = $cu->{$cot};
+                }
+            }
+
+            return ['du_an' => $d, 'co' => $co, 'gt' => $gt, 'truoc' => $soSanh,
+                'sheet' => config('duan.bao_cao_thang.sheet.'.$d->loai_hinh, [])];
+        });
+
+        $nguonVb = $baoCao ?? $truoc;
+
+        return view('bao-cao.thang.soan', [
+            'ky' => $ky,
+            'baoCao' => $baoCao,
+            'truoc' => $baoCao ? null : $truoc,
+            'vanBan' => [
+                'ten_don_vi' => $nguonVb?->ten_don_vi ?: ($user->don_vi ?: $user->name),
+                'nguoi_lap' => $nguonVb?->nguoi_lap,
+                'dien_thoai' => $nguonVb?->dien_thoai,
+            ],
+            'muc' => $muc,
+        ]);
+    }
+
+    public function luu(Request $request)
+    {
+        $user = $this->chiChuDauTu($request);
+        $ky = KyThang::tuMa($request->input('ky'));
+        abort_if(! $ky || $ky->laTuongLai(), 404);
+        $nop = $request->input('hanh_dong') === 'nop';
+
+        $baoCao = $user->baoCaoThang()->trongKy($ky)->first()
+            ?? new BaoCaoThang(['nguoi_bao_cao_id' => $user->id, 'nam' => $ky->nam, 'thang' => $ky->thang, 'trang_thai' => 'nhap']);
+        abort_unless($baoCao->conSuaDuoc(), 403, 'Báo cáo đã được Sở tiếp nhận, không sửa được nữa.');
+
+        $quyTac = [
+            'ten_don_vi' => [$nop ? 'required' : 'nullable', 'string', 'max:255'],
+            'nguoi_lap' => ['nullable', 'string', 'max:255'],
+            'dien_thoai' => ['nullable', 'string', 'max:50'],
+            'du_an' => ['nullable', 'array'],
+            'du_an.*.co' => ['nullable', 'boolean'],
+            'du_an.*.cong_suat' => ['nullable', 'string', 'max:255'],
+            'du_an.*.cod_nam' => ['nullable', 'integer', 'between:2000,2100'],
+            'du_an.*.cod_ky' => ['nullable', 'in:'.implode(',', array_keys(BaoCaoThangDuAn::KY_COD))],
+        ];
+        foreach (array_diff(self::TRUONG, ['cong_suat']) as $cot) {
+            $quyTac["du_an.*.$cot"] = ['nullable', 'string', 'max:10000'];
+        }
+        $cuaToi = $user->duAn()->pluck('ten', 'id');
+        $locChon = fn ($dsMuc) => collect(is_array($dsMuc) ? $dsMuc : [])
+            ->filter(fn ($m, $id) => $cuaToi->has($id) && is_array($m) && ! empty($m['co']));
+
+        $tenTruong = ['ten_don_vi' => 'tên đơn vị báo cáo', 'nguoi_lap' => 'người lập', 'dien_thoai' => 'điện thoại',
+            'du_an' => 'danh sách dự án', 'du_an.*.cod_nam' => 'năm dự kiến vận hành thương mại', 'du_an.*.cod_ky' => 'thời điểm dự kiến vận hành'];
+        foreach (BaoCaoThangDuAn::TRUONG_CHU as $cot => $nhan) {
+            $tenTruong["du_an.*.$cot"] = 'mục "'.$nhan.'"';
+        }
+        $kiemTra = Validator::make($request->all(), $quyTac, BaoCaoController::THONG_BAO_LOI, $tenTruong);
+        if ($nop) {
+            $kiemTra->after(function ($v) use ($request, $cuaToi, $locChon) {
+                $chon = $locChon($request->input('du_an'));
+                if ($chon->isEmpty()) {
+                    $v->errors()->add('du_an', 'Chọn ít nhất 1 dự án để đưa vào báo cáo.');
+                }
+                foreach ($chon as $id => $m) {
+                    if (trim((string) ($m['tinh_hinh'] ?? '')) === '') {
+                        $v->errors()->add("du_an.$id.tinh_hinh", 'Nhập "Tình hình triển khai thực hiện, khó khăn vướng mắc" của dự án "'.$cuaToi[$id].'".');
+                    }
+                }
+            });
+        }
+        $data = $kiemTra->validate();
+        $chon = $locChon($data['du_an'] ?? []);
+
+        DB::transaction(function () use ($baoCao, $data, $chon, $nop, $ky) {
+            $baoCao->fill(collect($data)->only(['ten_don_vi', 'nguoi_lap', 'dien_thoai'])->all());
+            if ($nop) {
+                $baoCao->trang_thai = 'da_nop';
+                $baoCao->nop_luc = now();
+            }
+            $baoCao->save();
+
+            $baoCao->chiTiet()->whereNotIn('du_an_id', $chon->keys()->all())->delete();
+            $daCo = $baoCao->chiTiet()->pluck('nhom', 'du_an_id');
+            foreach ($chon as $id => $m) {
+                $gt = [];
+                foreach (self::TRUONG as $cot) {
+                    $gt[$cot] = isset($m[$cot]) && trim((string) $m[$cot]) !== '' ? trim((string) $m[$cot]) : null;
+                }
+                $gt['cod_nam'] = $m['cod_nam'] ?? null;
+                $gt['cod_ky'] = $gt['cod_nam'] ? ($m['cod_ky'] ?? null) : null;
+                // Dòng mới: giữ nhóm Sở đã xếp cho dự án này ở tháng gần nhất
+                if (! $daCo->has($id)) {
+                    $gt['nhom'] = BaoCaoThangDuAn::query()
+                        ->join('bao_cao_thang', 'bao_cao_thang.id', '=', 'bao_cao_thang_du_an.bao_cao_thang_id')
+                        ->where('bao_cao_thang_du_an.du_an_id', $id)->whereNotNull('bao_cao_thang_du_an.nhom')
+                        ->where(fn ($q) => $this->truocKy($q, $ky, 'bao_cao_thang.'))
+                        ->orderByDesc('bao_cao_thang.nam')->orderByDesc('bao_cao_thang.thang')
+                        ->value('bao_cao_thang_du_an.nhom');
+                }
+                $baoCao->chiTiet()->updateOrCreate(['du_an_id' => $id], $gt);
+            }
+        });
+
+        return $nop
+            ? redirect()->route('bao-cao.thang.show', $baoCao)->with('thong_bao', 'Đã gửi báo cáo '.mb_strtolower($ky->ten()).' cho Sở.')
+            : redirect()->route('bao-cao.thang.soan', ['ky' => $ky->ma()])->with('thong_bao', 'Đã lưu nháp — báo cáo chưa được gửi cho Sở.');
+    }
+
+    public function show(Request $request, BaoCaoThang $baoCao, XuatExcelBaoCaoThang $xuat)
+    {
+        $this->kiemTraQuyenXem($request->user(), $baoCao);
+        $baoCao->load(['chiTiet.duAn', 'nguoiBaoCao', 'nguoiXuLy']);
+        $baoCao->chiTiet->each->setRelation('baoCao', $baoCao);
+
+        return view('bao-cao.thang.xem', [
+            'baoCao' => $baoCao,
+            'ky' => $baoCao->ky(),
+            'cauTruc' => $xuat->cauTruc($baoCao->chiTiet),
+        ]);
+    }
+
+    public function excel(Request $request, BaoCaoThang $baoCao, XuatExcelBaoCaoThang $xuat)
+    {
+        $this->kiemTraQuyenXem($request->user(), $baoCao);
+        $baoCao->load(['chiTiet.duAn', 'nguoiBaoCao']);
+        $ten = "Bao-cao-thang-{$baoCao->thang}-{$baoCao->nam}-".Str::slug($baoCao->ten_don_vi_hien_thi).'.xlsx';
+
+        return $xuat->tao($baoCao->ky(), $baoCao->chiTiet, [], $baoCao->ten_don_vi_hien_thi)->taiVe($ten);
+    }
+
+    public function tongHopExcel(Request $request, XuatExcelBaoCaoThang $xuat)
+    {
+        $ky = KyThang::tuMa($request->query('ky')) ?? KyThang::hienTai();
+        $dsBaoCao = BaoCaoThang::with(['nguoiBaoCao', 'chiTiet.duAn'])->trongKy($ky)->daGui()->get();
+
+        return $xuat->tao($ky, $this->dongTongHop($dsBaoCao), CaiDat::layJson($this->khoaGhiChu($ky)))
+            ->taiVe("Tong-hop-bao-cao-thang-{$ky->thang}-{$ky->nam}.xlsx");
+    }
+
+    /** Trang in bảng tổng hợp tháng: tình hình gửi báo cáo của từng đơn vị + bảng theo mẫu từng loại hình */
+    public function tongHopIn(Request $request, XuatExcelBaoCaoThang $xuat)
+    {
+        $ky = KyThang::tuMa($request->query('ky')) ?? KyThang::hienTai();
+        $daGui = BaoCaoThang::with(['nguoiBaoCao', 'chiTiet.duAn'])->trongKy($ky)->daGui()->get();
+        $phaiNop = $this->chuDauTuPhaiBaoCao()
+            ->filter(fn (User $u) => ! $ky->somHon(KyThang::batDauBaoCao($u->created_at)) || $daGui->contains('nguoi_bao_cao_id', $u->id))
+            ->values();
+
+        return view('bao-cao.thang.in-tong-hop', [
+            'ky' => $ky,
+            'daGui' => $daGui,
+            'phaiNop' => $phaiNop,
+            'cauTruc' => $xuat->cauTruc($this->dongTongHop($daGui)),
+            'ghiChu' => CaiDat::layJson($this->khoaGhiChu($ky)),
+        ]);
+    }
+
+    /** Sở xếp nhóm (I, II…) cho từng dự án và chỉnh ghi chú cuối từng sheet của bảng tổng hợp tháng */
+    public function phanNhom(Request $request)
+    {
+        $ky = KyThang::tuMa($request->input('ky'));
+        abort_unless($ky, 404);
+        $data = $request->validate([
+            'nhom' => ['nullable', 'array'],
+            'nhom.*' => ['nullable', 'in:'.implode(',', array_keys(config('duan.bao_cao_thang.nhom')))],
+            'ghi_chu' => ['nullable', 'array'],
+            'ghi_chu.*' => ['nullable', 'string', 'max:20000'],
+        ], BaoCaoController::THONG_BAO_LOI, ['nhom.*' => 'nhóm dự án', 'ghi_chu.*' => 'ghi chú']);
+
+        $idTrongKy = BaoCaoThangDuAn::whereHas('baoCao', fn ($q) => $q->trongKy($ky))->pluck('id')->flip();
+        DB::transaction(function () use ($data, $idTrongKy, $request, $ky) {
+            foreach ($data['nhom'] ?? [] as $id => $nhom) {
+                if ($idTrongKy->has($id)) {
+                    BaoCaoThangDuAn::whereKey($id)->update(['nhom' => $nhom ?: null]);
+                }
+            }
+            if ($request->boolean('tu_dong')) {
+                CaiDat::dat($this->khoaGhiChu($ky), null);
+            } else {
+                CaiDat::datJson($this->khoaGhiChu($ky), array_filter(
+                    array_map(fn ($s) => trim((string) $s), $data['ghi_chu'] ?? []),
+                    fn ($s) => $s !== ''
+                ));
+            }
+        });
+
+        return redirect()->route('bao-cao.thang.index', ['ky' => $ky->ma()])->withFragment('tong-hop')
+            ->with('thong_bao', $request->boolean('tu_dong')
+                ? 'Đã tạo lại ghi chú tự động theo năm dự kiến vận hành chủ đầu tư khai.'
+                : 'Đã lưu phân nhóm và ghi chú bảng tổng hợp '.mb_strtolower($ky->ten()).'.');
+    }
+
+    public function xuLy(Request $request, BaoCaoThang $baoCao)
+    {
+        $data = $request->validate([
+            'hanh_dong' => ['required', 'in:tiep_nhan,yeu_cau_bo_sung'],
+            'y_kien' => ['nullable', 'required_if:hanh_dong,yeu_cau_bo_sung', 'string', 'max:2000'],
+        ], ['y_kien.required_if' => 'Ghi rõ nội dung chủ đầu tư cần bổ sung.'] + BaoCaoController::THONG_BAO_LOI,
+            ['hanh_dong' => 'thao tác', 'y_kien' => 'ý kiến']);
+
+        // Cho phép tra lai (chuyen ve "yeu cau bo sung") ca khi da tiep nhan — lo tiep nhan nham
+        // van sua duoc, khong phai cho chu dau tu nop bao cao moi roi moi xu ly lai duoc.
+        if (! in_array($baoCao->trang_thai, ['da_nop', 'da_tiep_nhan'], true)) {
+            return back()->withErrors(['xu_ly' => 'Chỉ xử lý được báo cáo đang chờ tiếp nhận hoặc đã tiếp nhận.']);
+        }
+        if ($baoCao->trang_thai === 'da_tiep_nhan' && $data['hanh_dong'] !== 'yeu_cau_bo_sung') {
+            return back()->withErrors(['xu_ly' => 'Báo cáo đã tiếp nhận chỉ có thể trả lại (yêu cầu bổ sung).']);
+        }
+        $tiepNhan = $data['hanh_dong'] === 'tiep_nhan';
+        $baoCao->update([
+            'trang_thai' => $tiepNhan ? 'da_tiep_nhan' : 'yeu_cau_bo_sung',
+            'nguoi_xu_ly_id' => $request->user()->id,
+            'xu_ly_luc' => now(),
+            'y_kien_xu_ly' => $data['y_kien'] ?? null,
+        ]);
+
+        return redirect()->route('bao-cao.thang.show', $baoCao)->with('thong_bao', $tiepNhan
+            ? 'Đã tiếp nhận báo cáo tháng.'
+            : 'Đã trả báo cáo, yêu cầu chủ đầu tư bổ sung.');
+    }
+
+    /** Các dòng đưa vào bảng tổng hợp: báo cáo đã gửi đang chờ hoặc đã tiếp nhận (không lấy bản đang bị trả bổ sung) */
+    private function dongTongHop(Collection $dsBaoCao): Collection
+    {
+        return $dsBaoCao->whereIn('trang_thai', ['da_nop', 'da_tiep_nhan'])
+            ->flatMap(function (BaoCaoThang $b) {
+                $b->chiTiet->each->setRelation('baoCao', $b);
+
+                return $b->chiTiet;
+            })
+            ->values();
+    }
+
+    /** Giá trị điền sẵn lần đầu báo cáo tháng một dự án — lấy từ hồ sơ dự án và báo cáo tuần gần nhất */
+    private function giaTriTuDuAn(DuAn $d, User $user, ?BaoCaoTuanDuAn $tuan): array
+    {
+        $phapLy = $d->vanBan->map(fn ($vb) => '- '.($vb->loai ?: 'Quyết định').' số '.($vb->so_van_ban ?: '…')
+            .($vb->ngay_van_ban ? ' ngày '.$vb->ngay_van_ban->format('d/m/Y') : ''))->implode("\n");
+        $tinhHinh = collect([
+            $tuan?->cong_viec_dang_lam,
+            $tuan?->kho_khan ? "Khó khăn, vướng mắc:\n".$tuan->kho_khan : null,
+        ])->filter(fn ($s) => trim((string) $s) !== '')->implode("\n");
+
+        return [
+            'dia_diem' => $d->dia_diem,
+            'cong_suat' => $d->cong_suat_mw ? BaoCaoTuanDuAn::so($d->cong_suat_mw, 3) : $d->cong_suat,
+            'chu_dau_tu' => $d->chu_dau_tu ?: ($user->don_vi ?: $user->name),
+            'phap_ly' => $phapLy ?: null,
+            'tien_do_cod' => $d->tien_do_van_hanh,
+            'tinh_hinh' => $tinhHinh ?: null,
+        ];
+    }
+
+    /** Điều kiện "trước kỳ $ky" theo cặp (năm, tháng) */
+    private function truocKy($q, KyThang $ky, string $tien = ''): void
+    {
+        $q->where($tien.'nam', '<', $ky->nam)
+            ->orWhere(fn ($q) => $q->where($tien.'nam', $ky->nam)->where($tien.'thang', '<', $ky->thang));
+    }
+
+    private function khoaGhiChu(KyThang $ky): string
+    {
+        return 'bao_cao_thang.ghi_chu.'.$ky->ma();
+    }
+
+    /** Chủ đầu tư đã duyệt, được gán ít nhất 1 dự án và được Sở đặt chế độ báo cáo tháng */
+    private function chuDauTuPhaiBaoCao(): Collection
+    {
+        return User::where('vai_tro', 'chu_dau_tu')->where('da_duyet', true)->where('bc_thang', true)->whereHas('duAn')
+            ->with(['duAn' => fn ($q) => $q->orderBy('ten')])
+            ->get()
+            ->sortBy(fn (User $u) => $u->don_vi ?: $u->name)
+            ->values();
+    }
+
+    private function kiemTraQuyenXem(User $user, BaoCaoThang $baoCao): void
+    {
+        $duoc = $user->vai_tro === 'chu_dau_tu'
+            ? (int) $baoCao->nguoi_bao_cao_id === (int) $user->id
+            : $baoCao->daTungNop();
+        abort_unless($duoc, 404);
+    }
+
+    private function chiChuDauTu(Request $request): User
+    {
+        $user = $request->user();
+        abort_unless($user->vai_tro === 'chu_dau_tu', 403, 'Chỉ tài khoản chủ đầu tư mới lập được báo cáo tháng.');
+
+        return $user;
+    }
+}

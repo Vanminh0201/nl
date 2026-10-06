@@ -1,0 +1,46 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class DoiTuongHaTang extends Model
+{
+    protected $table = 'doi_tuong_ha_tang';
+
+    public $timestamps = false;
+
+    protected $guarded = ['id'];
+
+    protected $casts = [
+        'hinh_hoc' => 'array',
+        'thuoc_tinh' => 'array',
+        'tam_vi_do' => 'float',
+        'tam_kinh_do' => 'float',
+    ];
+
+    public const LOAI = [
+        'tram' => 'Trạm biến áp',
+        'duong_day' => 'Đường dây',
+        'nha_may' => 'Nhà máy điện',
+        'khac' => 'Đối tượng khác',
+    ];
+
+    public function lop(): BelongsTo
+    {
+        return $this->belongsTo(LopHaTang::class, 'lop_id');
+    }
+
+    public static function mauTheoDienAp(?int $kv): string
+    {
+        return match (true) {
+            $kv === null => '#8a8f94',
+            $kv >= 500 => '#c0392b',
+            $kv >= 220 => '#d97b2a',
+            $kv >= 110 => '#2f6fae',
+            $kv >= 22 => '#6f8390',
+            default => '#8a8f94',
+        };
+    }
+}

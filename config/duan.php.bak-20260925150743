@@ -1,0 +1,44 @@
+<?php
+
+return [
+    /* Tâm và mức phóng mặc định của bản đồ */
+    'ban_do' => [
+        'vi_do' => env('DUAN_BAN_DO_LAT', 17.30),
+        'kinh_do' => env('DUAN_BAN_DO_LNG', 106.75),
+        'muc_phong' => env('DUAN_BAN_DO_ZOOM', 8),
+
+        // Lớp nền mặc định, dùng cho bản đồ nhỏ ở trang thêm/sửa và chi tiết dự án
+        // (không có bộ chọn lớp, chỉ trang Bản đồ chính mới có).
+        'tile' => env('DUAN_BAN_DO_TILE', 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
+        'ghi_nguon' => env('DUAN_BAN_DO_ATTR', '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'),
+
+        // Các lớp nền cho bộ chọn ở trang Bản đồ chính.
+        // "Đường phố" dùng thẳng máy chủ tile chính thức của OSM: miễn phí, không cần khoá, nhưng
+        // theo chính sách sử dụng của OSM chỉ dành cho tải nhẹ, không cam kết cho production, và một
+        // số mạng/nhà mạng từng chặn domain này — nếu tile lỗi nhiều/chậm, cân nhắc đổi sang nhà cung
+        // cấp có khoá API (MapTiler, CARTO...).
+        // "Vệ tinh" và "Địa hình" chưa có nguồn miễn phí không cần khoá tương đương OSM nên vẫn dùng
+        // Esri ArcGIS Online. "Địa hình" (Esri World_Topo_Map) chưa cập nhật địa giới hành chính VN
+        // sau đợt sáp nhập 07/2025 — chấp nhận tạm, chưa có nguồn thay thế phù hợp (đã rà soát).
+        'lop_nen' => [
+            'pho' => [
+                'ten' => 'Đường phố',
+                'tile' => 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                'ghi_nguon' => '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+            ],
+            've_tinh' => [
+                'ten' => 'Vệ tinh',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri — Nguồn: Esri, Maxar, Earthstar Geographics',
+            ],
+            'dia_hinh' => [
+                'ten' => 'Địa hình',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri',
+            ],
+        ],
+    ],
+
+    /* Số đối tượng hạ tầng tối đa trả về cho một khung nhìn */
+    'gioi_han_ha_tang' => env('DUAN_GIOI_HAN_HA_TANG', 4000),
+];

@@ -1,0 +1,125 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+
+class User extends Authenticatable
+{
+    use HasFactory, Notifiable;
+
+    protected $fillable = ['name', 'email', 'password', 'vai_tro', 'don_vi', 'da_duyet', 'quyen_xem'];
+
+    protected $hidden = ['password', 'remember_token'];
+
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+            'da_duyet' => 'boolean',
+            'quyen_xem' => 'array',
+        ];
+    }
+
+    /**
+     * Các mục quản trị cấp/thu quyền xem cho từng tài khoản (trang Tài khoản → Phân quyền).
+     * Chỉ là quyền XEM — quyền thêm/sửa/xoá vẫn theo vai trò (duocSua/duocXoa). Quản trị hệ thống
+     * luôn xem được tất cả; Danh mục và Tài khoản chỉ dành cho quản trị, không nằm trong danh sách này.
+     */
+    public const MUC_XEM = [
+        'ban_do' => ['ten' => 'Bản đồ dự án', 'mo_ta' => 'Trang Bản đồ và các điểm dự án trên bản đồ'],
+        'luoi_dien' => ['ten' => 'Lưới điện trên bản đồ', 'mo_ta' => 'Vẽ đường dây, trạm biến áp lên bản đồ'],
+        'tra_cuu_luoi_dien' => ['ten' => 'Tra cứu lưới điện', 'mo_ta' => 'Tab "Lưới điện" ở khung bên bản đồ: danh sách tuyến, TBA theo cấp điện áp'],
+        'danh_sach' => ['ten' => 'Danh sách dự án', 'mo_ta' => 'Bảng danh sách, trang chi tiết và xuất Excel/GeoJSON'],
+        'tat_ca_du_an' => ['ten' => 'Xem tất cả dự án', 'mo_ta' => 'Chỉ áp dụng cho chủ đầu tư — bỏ chọn thì chỉ thấy dự án được gán cho mình'],
+        'bao_cao' => ['ten' => 'Báo cáo tuần', 'mo_ta' => 'Chủ đầu tư: lập, gửi báo cáo; các vai trò khác: xem báo cáo đã gửi'],
+        'thong_ke' => ['ten' => 'Thống kê', 'mo_ta' => 'Trang số liệu tổng hợp'],
+        'lop_ha_tang' => ['ten' => 'Lớp hạ tầng', 'mo_ta' => 'Trang danh sách các lớp lưới điện, hạ tầng đã nạp'],
+    ];
+
+    /** Trang mở ra sau khi đăng nhập / vào "/": trang đầu tiên (theo thứ tự menu) tài khoản được xem */
+    private const TRANG_THEO_MUC = [
+        'ban_do' => 'ban-do',
+        'danh_sach' => 'du-an.index',
+        'bao_cao' => 'bao-cao.index',
+        'thong_ke' => 'thong-ke',
+        'lop_ha_tang' => 'lop-ha-tang.index',
+    ];
+
+    /** Mặc định giữ đúng cách phân quyền theo vai trò trước khi có trang Phân quyền */
+    public function quyenXemMacDinh(): array
+    {
+        return $this->vai_tro === 'chu_dau_tu'
+            ? ['ban_do', 'luoi_dien', 'danh_sach', 'bao_cao']
+            : array_keys(self::MUC_XEM);
+    }
+
+    public function dsQuyenXem(): array
+    {
+        if ($this->vai_tro === 'quan_tri') {
+            return array_keys(self::MUC_XEM);
+        }
+
+        return is_array($this->quyen_xem)
+            ? array_values(array_intersect(array_keys(self::MUC_XEM), $this->quyen_xem))
+            : $this->quyenXemMacDinh();
+    }
+
+    /** Được xem ít nhất 1 trong các mục truyền vào */
+    public function duocXem(string ...$muc): bool
+    {
+        return (bool) array_intersect($muc, $this->dsQuyenXem());
+    }
+
+    public function laQuyenTuyChinh(): bool
+    {
+        return $this->vai_tro !== 'quan_tri' && is_array($this->quyen_xem);
+    }
+
+    public function trangDau(): ?string
+    {
+        foreach (self::TRANG_THEO_MUC as $muc => $tenRoute) {
+            if ($this->duocXem($muc)) {
+                return route($tenRoute);
+            }
+        }
+
+        return null;
+    }
+
+    public const VAI_TRO = [
+        'quan_tri' => 'Quản trị hệ thống',
+        'nhap_lieu' => 'Nhập liệu',
+        'xem' => 'Chỉ xem',
+        'chu_dau_tu' => 'Chủ đầu tư',
+    ];
+
+    public function duocSua(): bool
+    {
+        return in_array($this->vai_tro, ['quan_tri', 'nhap_lieu'], true);
+    }
+
+    public function duocXoa(): bool
+    {
+        return $this->vai_tro === 'quan_tri';
+    }
+
+    public function getTenVaiTroAttribute(): string
+    {
+        return self::VAI_TRO[$this->vai_tro] ?? $this->vai_tro;
+    }
+
+    /** Chỉ có ý nghĩa với vai_tro = chu_dau_tu: các dự án được gán cho tài khoản này */
+    public function duAn()
+    {
+        return $this->hasMany(DuAn::class, 'chu_dau_tu_id');
+    }
+
+    public function baoCaoTuan()
+    {
+        return $this->hasMany(BaoCaoTuan::class, 'nguoi_bao_cao_id');
+    }
+}

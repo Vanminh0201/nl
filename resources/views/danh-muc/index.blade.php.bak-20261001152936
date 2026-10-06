@@ -1,0 +1,225 @@
+@extends('layouts.app')
+@section('tieu_de', 'Danh mục loại hình và trạng thái')
+
+@section('noi_dung')
+<div class="pad" style="display:flex;flex-direction:column;gap:14px">
+  <div class="sheet">
+    <div class="sheet-hd"><h2>Loại hình dự án</h2></div>
+    <div class="sheet-bd" style="padding:0">
+      @foreach ($dsLoaiHinh as $l)
+        <form id="sua-lh-{{ $l->id }}" method="post" action="{{ route('danh-muc.loai-hinh.update', $l) }}" style="display:none">
+          @csrf @method('put')
+        </form>
+      @endforeach
+      <table style="min-width:0;width:auto">
+        <thead>
+          <tr><th>Mã</th><th>Tên</th><th>Màu</th><th>Biểu tượng</th><th class="num">Đang dùng</th><th></th></tr>
+        </thead>
+        <tbody>
+        @forelse ($dsLoaiHinh as $l)
+          <tr>
+            <td><code>{{ $l->ma }}</code></td>
+            <td><input form="sua-lh-{{ $l->id }}" name="ten" value="{{ $l->ten }}" required maxlength="150" style="width:100%"></td>
+            <td><input form="sua-lh-{{ $l->id }}" type="color" name="mau" value="{{ $l->mau }}" id="mau-lh-{{ $l->id }}" data-xem="xem-lh-{{ $l->id }}" style="vertical-align:middle"></td>
+            <td>
+              <span class="bt-chon chon-bieu-tuong" data-ten="bieu_tuong" data-form="sua-lh-{{ $l->id }}" data-mau="mau-lh-{{ $l->id }}" data-chon="{{ $l->bieu_tuong }}"></span>
+            </td>
+            <td class="num">{{ $l->soDuAnDangDung() }}</td>
+            <td style="white-space:nowrap">
+              <button form="sua-lh-{{ $l->id }}" class="btn sm">Lưu</button>
+              @if ($l->soDuAnDangDung() === 0)
+                <form method="post" action="{{ route('danh-muc.loai-hinh.destroy', $l) }}" style="display:inline"
+                      onsubmit="return confirm('Xoá loại hình {{ $l->ten }}?')">
+                  @csrf @method('delete')
+                  <button class="btn sm danger">Xoá</button>
+                </form>
+              @endif
+            </td>
+          </tr>
+        @empty
+          <tr><td colspan="6" style="padding:26px;color:var(--ink-2)">Chưa có loại hình nào.</td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+    <div class="sheet-ft">
+      @if ($errors->has('loai_hinh'))
+        <div class="loi" style="margin-bottom:8px">{{ $errors->first('loai_hinh') }}</div>
+      @endif
+      <form method="post" action="{{ route('danh-muc.loai-hinh.store') }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        @csrf
+        <input name="ma" value="{{ old('ma') }}" placeholder="Mã (VD: cang_bien)" maxlength="30" required style="width:160px">
+        <input name="ten" value="{{ old('ten') }}" placeholder="Tên loại hình" maxlength="150" required style="flex:1;min-width:180px">
+        <input type="color" name="mau" value="{{ old('mau', '#1f4b6e') }}" class="mau-loai-hinh" id="mau-lh-moi">
+        <span class="bt-chon chon-bieu-tuong" data-ten="bieu_tuong" data-mau="mau-lh-moi" data-chon="{{ old('bieu_tuong', 'khac') }}"></span>
+        <button class="btn primary">Thêm loại hình</button>
+      </form>
+      <p class="hint" style="margin-top:8px">
+        Mã dùng để lưu trong dữ liệu dự án và không đổi được sau khi tạo. Chỉ xoá được khi không còn dự án nào dùng.
+      </p>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-hd"><h2>Trạng thái dự án</h2></div>
+    <div class="sheet-bd" style="padding:0">
+      @foreach ($dsTrangThai as $t)
+        <form id="sua-tt-{{ $t->id }}" method="post" action="{{ route('danh-muc.trang-thai.update', $t) }}" style="display:none">
+          @csrf @method('put')
+        </form>
+      @endforeach
+      <table style="min-width:0;width:auto">
+        <thead>
+          <tr><th>Tên</th><th>Nhóm thống kê</th><th class="num">Đang dùng</th><th></th></tr>
+        </thead>
+        <tbody>
+        @forelse ($dsTrangThai as $t)
+          <tr>
+            <td><input form="sua-tt-{{ $t->id }}" name="ten" value="{{ $t->ten }}" required maxlength="150" style="width:100%"></td>
+            <td>
+              <select form="sua-tt-{{ $t->id }}" name="nhom">
+                @foreach (App\Models\TrangThaiDuAn::NHOM as $ma => $nhan)
+                  <option value="{{ $ma }}" @selected($t->nhom === $ma)>{{ $nhan }}</option>
+                @endforeach
+              </select>
+            </td>
+            <td class="num">{{ $t->soDuAnDangDung() }}</td>
+            <td style="white-space:nowrap">
+              <button form="sua-tt-{{ $t->id }}" class="btn sm">Lưu</button>
+              @if ($t->soDuAnDangDung() === 0)
+                <form method="post" action="{{ route('danh-muc.trang-thai.destroy', $t) }}" style="display:inline"
+                      onsubmit="return confirm('Xoá trạng thái {{ $t->ten }}?')">
+                  @csrf @method('delete')
+                  <button class="btn sm danger">Xoá</button>
+                </form>
+              @endif
+            </td>
+          </tr>
+        @empty
+          <tr><td colspan="4" style="padding:26px;color:var(--ink-2)">Chưa có trạng thái nào.</td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+    <div class="sheet-ft">
+      @if ($errors->has('trang_thai'))
+        <div class="loi" style="margin-bottom:8px">{{ $errors->first('trang_thai') }}</div>
+      @endif
+      <form method="post" action="{{ route('danh-muc.trang-thai.store') }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        @csrf
+        <input name="ten" value="{{ old('ten') }}" placeholder="Tên trạng thái" maxlength="150" required style="flex:1;min-width:180px">
+        <select name="nhom">
+          @foreach (App\Models\TrangThaiDuAn::NHOM as $ma => $nhan)
+            <option value="{{ $ma }}" @selected(old('nhom') === $ma)>{{ $nhan }}</option>
+          @endforeach
+        </select>
+        <button class="btn primary">Thêm trạng thái</button>
+      </form>
+      <p class="hint" style="margin-top:8px">
+        Nhóm "Đã hoàn thành" và "Chậm tiến độ" quyết định 2 ô đếm trên trang Thống kê. Đổi tên ở đây sẽ tự cập
+        nhật cho mọi dự án đang dùng trạng thái đó. Chỉ xoá được khi không còn dự án nào ở trạng thái này.
+      </p>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-hd"><h2>Biểu tượng</h2></div>
+    <div class="sheet-bd">
+      @if ($errors->has('bieu_tuong') || $errors->has('tep') || $errors->has('hinh'))
+        <div class="loi" style="margin-bottom:12px">{{ $errors->first('bieu_tuong') ?: ($errors->first('tep') ?: $errors->first('hinh')) }}</div>
+      @endif
+      <div class="bt-luoi">
+        @foreach ($dsBieuTuong as $b)
+          <div class="bt-oo">
+            <form class="bt-oo-form" method="post" action="{{ route('danh-muc.bieu-tuong.update', $b) }}" enctype="multipart/form-data">
+              @csrf @method('put')
+              <span class="xem-bieu-tuong-thuc" data-ma="{{ $b->ma }}"></span>
+              <input name="ten" value="{{ $b->ten }}" required maxlength="100" class="bt-oo-ten">
+              <code class="bt-oo-ma">{{ $b->ma }}</code>
+              <div class="bt-oo-dieu-khien">
+                <span class="bt-chon chon-hinh" data-ten="hinh" data-chon="{{ $b->hinh }}" title="Hình dự phòng, dùng khi chưa tải icon riêng"></span>
+                <label class="btn sm" title="Tải icon riêng (SVG/PNG)">
+                  Icon riêng
+                  <input type="file" name="tep" accept=".svg,.png" style="display:none">
+                </label>
+              </div>
+              @if ($b->tep)
+                <label class="bt-oo-xoa-tep">
+                  <input type="checkbox" name="xoa_tep" value="1"> xoá icon riêng đã tải
+                </label>
+              @endif
+              <div class="bt-oo-chan">
+                <span class="hint" style="margin:0">Đang dùng: {{ $b->soDangDung() }}</span>
+                <button class="btn sm">Lưu</button>
+              </div>
+            </form>
+            @if ($b->soDangDung() === 0)
+              <form class="bt-oo-xoa" method="post" action="{{ route('danh-muc.bieu-tuong.destroy', $b) }}"
+                    onsubmit="return confirm('Xoá biểu tượng {{ $b->ten }}?')">
+                @csrf @method('delete')
+                <button class="btn sm danger" style="width:100%">Xoá</button>
+              </form>
+            @endif
+          </div>
+        @endforeach
+
+        <div class="bt-oo bt-oo-them">
+          <form class="bt-oo-form" method="post" action="{{ route('danh-muc.bieu-tuong.store') }}" enctype="multipart/form-data">
+            @csrf
+            <p class="hint" style="margin:0">Thêm biểu tượng mới</p>
+            <input name="ma" value="{{ old('ma') }}" placeholder="Mã (VD: cang_bien)" maxlength="30" required class="bt-oo-ten">
+            <input name="ten" value="{{ old('ten') }}" placeholder="Tên biểu tượng" maxlength="100" required class="bt-oo-ten">
+            <div class="bt-oo-dieu-khien">
+              <span class="bt-chon chon-hinh" data-ten="hinh" data-chon="{{ old('hinh', 'khac') }}" title="Hình dự phòng"></span>
+              <label class="btn sm" title="Hoặc tải icon riêng (SVG/PNG)">
+                Icon riêng
+                <input type="file" name="tep" accept=".svg,.png" style="display:none">
+              </label>
+            </div>
+            <button class="btn primary sm" style="width:100%">Thêm biểu tượng</button>
+          </form>
+        </div>
+      </div>
+      @if ($dsBieuTuong->isEmpty())
+        <p style="padding:26px 0 0;color:var(--ink-2)">Chưa có biểu tượng nào.</p>
+      @endif
+      <p class="hint" style="margin-top:12px">
+        Mã dùng để lưu trong dữ liệu loại hình/dự án và không đổi được sau khi tạo. Mỗi biểu tượng hiển thị
+        theo icon riêng nếu đã tải file lên (SVG/PNG, tối đa 300 KB, nên dùng nền trong suốt, hình đơn sắc để
+        đẹp trên huy hiệu tròn) — chưa tải file thì dùng tạm "Hình dự phòng" chọn từ thư viện có sẵn. Chỉ xoá
+        được khi không còn loại hình hay điểm dự án nào đang dùng.
+      </p>
+    </div>
+  </div>
+</div>
+@endsection
+
+@push('cuoi_trang')
+<script>window.DS_BIEU_TUONG = @json($dsBieuTuong);</script>
+<script src="{{ asset('js/bieu-tuong.js') }}?v={{ filemtime(public_path('js/bieu-tuong.js')) }}"></script>
+<script>
+(function () {
+  Array.prototype.forEach.call(document.querySelectorAll('.chon-bieu-tuong'), function (el) {
+    BieuTuongLoaiHinh.khoiTaoBoChon(el, 'bieu_tuong');
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.chon-hinh'), function (el) {
+    BieuTuongLoaiHinh.khoiTaoBoChon(el, 'hinh');
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.xem-bieu-tuong-thuc'), function (el) {
+    el.innerHTML = BieuTuongLoaiHinh.badgeHtml(el.dataset.ma, '#5b6773', 44);
+  });
+
+  // xem truoc ngay khi chon file moi, truoc khi luu — dung URL tam thoi cua trinh duyet
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="tep"]'), function (inp) {
+    inp.addEventListener('change', function () {
+      var form = inp.closest('form');
+      var xem = form ? form.querySelector('.xem-bieu-tuong-thuc') : null;
+      if (!inp.files[0] || !xem) return;
+      var url = URL.createObjectURL(inp.files[0]);
+      xem.innerHTML = '<span class="bieu-tuong-badge" style="width:44px;height:44px;background:#5b6773">'
+        + '<span class="bieu-tuong-anh" style="width:26px;height:26px;-webkit-mask-image:url(\'' + url + '\');mask-image:url(\'' + url + '\')"></span></span>';
+    });
+  });
+})();
+</script>
+@endpush

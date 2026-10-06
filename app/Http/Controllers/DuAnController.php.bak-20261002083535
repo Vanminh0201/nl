@@ -1,0 +1,434 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\LuuDuAnRequest;
+use App\Models\BaoCaoTuanDuAn;
+use App\Models\BieuTuong;
+use App\Models\DuAn;
+use App\Models\DuAnHinhHoc;
+use App\Models\DuAnVanBan;
+use App\Models\LoaiHinhDuAn;
+use App\Models\TrangThaiDuAn;
+use App\Models\User;
+use App\Services\DocDuLieuKhongGian;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use RuntimeException;
+
+class DuAnController extends Controller
+{
+    private const COT_SAP_XEP = [
+        'ten', 'cong_suat_mw', 'chu_dau_tu', 'loai_hinh', 'dia_diem', 'trang_thai',
+        'von_dang_ky', 'dien_tich', 'tien_do', 'ngay_hoan_thanh', 'so_van_ban', 'tien_do_van_hanh',
+    ];
+
+    public function index(Request $request)
+    {
+        $sapXep = in_array($request->query('sap_xep'), self::COT_SAP_XEP, true)
+            ? $request->query('sap_xep')
+            : 'ten';
+        $chieu = $request->query('chieu') === 'giam' ? 'desc' : 'asc';
+
+        $dkLoc = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'pl_chu_truong', 'ho_so']);
+
+        $duAn = DuAn::query()
+            ->loc($dkLoc)
+            ->with('vanBanChinh')
+            ->orderBy($sapXep, $chieu)
+            ->paginate(25)
+            ->withQueryString();
+
+        // Tong cong (dong "Tong cong" cuoi bang) theo toan bo dieu kien loc hien tai, khong
+        // gioi han theo trang phan trang
+        $tongHop = DuAn::query()->loc($dkLoc)->selectRaw('
+            COALESCE(SUM(von_dang_ky), 0) as tong_von,
+            COALESCE(SUM(dien_tich), 0) as tong_dien_tich,
+            COALESCE(SUM(cong_suat_mw), 0) as tong_cong_suat
+        ')->first();
+
+        return view('du-an.index', [
+            'duAn' => $duAn,
+            'sapXep' => $sapXep,
+            'chieu' => $chieu,
+            'diaDiem' => DuAn::query()->whereNotNull('dia_diem')->distinct()->orderBy('dia_diem')->pluck('dia_diem'),
+            'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
+            'dsTrangThai' => TrangThaiDuAn::danhSach(),
+            'tongVon' => (float) $tongHop->tong_von,
+            'tongDienTich' => (float) $tongHop->tong_dien_tich,
+            'tongCongSuat' => (float) $tongHop->tong_cong_suat,
+        ]);
+    }
+
+    public function create()
+    {
+        return view('du-an.form', [
+            'duAn' => new DuAn([
+                'trang_thai' => TrangThaiDuAn::danhSach()->keys()->first(),
+                'loai_hinh' => LoaiHinhDuAn::danhSach()->keys()->first(),
+            ]),
+            'diaDiem' => $this->diaDiemDaDung(),
+            'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
+            'dsTrangThai' => TrangThaiDuAn::danhSach(),
+            'dsBieuTuong' => BieuTuong::danhSach()->values(),
+            'dsChuDauTu' => $this->taiKhoanChuDauTu(),
+            'hinhHocBanDau' => [],
+        ]);
+    }
+
+    public function store(LuuDuAnRequest $request)
+    {
+        $duAn = DB::transaction(function () use ($request) {
+            $duAn = DuAn::create($request->duLieuDuAn());
+            $this->dongBoHinhHoc($duAn, $request->danhSachHinhHoc());
+            $this->dongBoVanBan($duAn, $request->danhSachVanBan());
+
+            return $duAn;
+        });
+
+        return redirect()
+            ->route('du-an.show', $duAn)
+            ->with('thong_bao', 'Đã thêm dự án vào danh mục.');
+    }
+
+    public function show(Request $request, DuAn $duAn)
+    {
+        $user = $request->user();
+
+        // Mục báo cáo tuần mới nhất đã gửi Sở — chủ đầu tư chỉ thấy báo cáo do chính mình lập
+        // (dự án có thể từng thuộc tài khoản khác trước khi được chuyển giao).
+        $mucBaoCao = BaoCaoTuanDuAn::query()
+            ->join('bao_cao_tuan', 'bao_cao_tuan.id', '=', 'bao_cao_tuan_du_an.bao_cao_tuan_id')
+            ->where('bao_cao_tuan_du_an.du_an_id', $duAn->id)
+            ->whereNotNull('bao_cao_tuan.nop_luc')
+            ->when($user->vai_tro === 'chu_dau_tu', fn ($q) => $q->where('bao_cao_tuan.nguoi_bao_cao_id', $user->id))
+            ->orderByDesc('bao_cao_tuan.tu_ngay')
+            ->select('bao_cao_tuan_du_an.*')
+            ->with('baoCao')
+            ->first();
+
+        $duAn->load(['vanBan', 'hinhHoc', 'taiKhoanChuDauTu', 'nguoiCapNhat']);
+
+        return view('du-an.chi-tiet', [
+            'duAn' => $duAn,
+            'dsBieuTuong' => BieuTuong::danhSach()->values(),
+            'mucBaoCao' => $mucBaoCao,
+            'nhomHinhHoc' => $this->nhomHinhHoc($duAn),
+        ]);
+    }
+
+    /**
+     * Gom các lớp hình học của dự án thành nhóm theo (loại, tên, biểu tượng) cho bản đồ chi tiết —
+     * một dự án điện gió có thể có hàng trăm đoạn "Tuyến cáp điện thu gom", liệt kê từng đoạn ở
+     * sidebar là vô dụng, gom lại thì bật/tắt và phóng tới cả nhóm được ngay.
+     */
+    private function nhomHinhHoc(DuAn $duAn): array
+    {
+        return $duAn->hinhHoc
+            ->groupBy(fn ($h) => $h->loai.'|'.trim((string) $h->ten).'|'.$h->bieu_tuong)
+            ->values()
+            ->map(fn ($ds) => [
+                'loai' => $ds[0]->loai,
+                'ten' => trim((string) $ds[0]->ten) ?: DuAnHinhHoc::LOAI[$ds[0]->loai],
+                'bieu_tuong' => $ds[0]->bieu_tuong,
+                // Người nhập đã ẩn cả nhóm (VD điểm cột của đường dây) thì mặc định tắt, vẫn bật lại được
+                'hien' => $ds->contains('hien_thi', true),
+                'doi_tuong' => $ds->map(fn ($h) => [
+                    'toa_do' => $h->toa_do,
+                    'nhan' => $h->nhan_diem,
+                    'ten' => $h->ten,
+                ])->values()->all(),
+            ])
+            ->sortBy(fn ($n) => ['vung' => 0, 'duong' => 1, 'diem' => 2][$n['loai']] ?? 3)
+            ->values()
+            ->all();
+    }
+
+    public function edit(DuAn $duAn)
+    {
+        return view('du-an.form', [
+            'duAn' => $duAn->load('vanBan'),
+            'diaDiem' => $this->diaDiemDaDung(),
+            'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
+            'dsTrangThai' => TrangThaiDuAn::danhSach(),
+            'dsBieuTuong' => BieuTuong::danhSach()->values(),
+            'dsChuDauTu' => $this->taiKhoanChuDauTu(),
+            'hinhHocBanDau' => $this->hinhHocBanDau($duAn),
+        ]);
+    }
+
+    public function update(LuuDuAnRequest $request, DuAn $duAn)
+    {
+        DB::transaction(function () use ($request, $duAn) {
+            $duAn->update($request->duLieuDuAn());
+            $this->dongBoHinhHoc($duAn, $request->danhSachHinhHoc());
+            $this->dongBoVanBan($duAn, $request->danhSachVanBan());
+        });
+
+        return redirect()
+            ->route('du-an.show', $duAn)
+            ->with('thong_bao', 'Đã cập nhật dự án.');
+    }
+
+    public function destroy(DuAn $duAn)
+    {
+        $duAn->delete();
+
+        return redirect()
+            ->route('du-an.index')
+            ->with('thong_bao', "Đã xoá dự án {$duAn->ten}. Bản ghi vẫn nằm trong thùng rác của cơ sở dữ liệu.");
+    }
+
+    /**
+     * Đồng bộ danh sách văn bản chủ trương đầu tư của dự án: cập nhật văn bản đã có (theo id),
+     * tạo mới văn bản chưa có id, và xoá (kèm xoá file) những văn bản không còn trong danh sách
+     * gửi lên — dòng nào bị bấm "Xoá dòng này" trên form thì đơn giản là không có mặt trong
+     * $danhSach nữa, không cần cờ đánh dấu riêng.
+     */
+    private function dongBoVanBan(DuAn $duAn, array $danhSach): void
+    {
+        $idsGiuLai = [];
+
+        foreach ($danhSach as $i => $r) {
+            $duLieu = [
+                'loai' => $r['loai'] ?: null,
+                'so_van_ban' => $r['so_van_ban'] ?: null,
+                'ngay_van_ban' => $r['ngay_van_ban'] ?: null,
+                'thu_tu' => $i,
+            ];
+
+            $vanBan = ! empty($r['id']) ? $duAn->vanBan()->find($r['id']) : null;
+
+            if ($r['tep'] instanceof \Illuminate\Http\UploadedFile) {
+                if ($vanBan) {
+                    $this->xoaTepVanBan($vanBan);
+                }
+                $duLieu['tep'] = $this->luuTepVanBan($r['tep']);
+            }
+
+            $vanBan = $vanBan
+                ? tap($vanBan)->update($duLieu)
+                : $duAn->vanBan()->create($duLieu);
+
+            $idsGiuLai[] = $vanBan->id;
+        }
+
+        $duAn->vanBan()->whereNotIn('id', $idsGiuLai ?: [0])->get()->each(function (DuAnVanBan $vb) {
+            $this->xoaTepVanBan($vb);
+            $vb->delete();
+        });
+
+        // Giữ so_van_ban/ngay_van_ban trên chính dự án là văn bản có ngày mới nhất, để
+        // các chỗ khác (danh sách, xuất CSV/GeoJSON) vẫn có 1 giá trị đại diện không đổi cách dùng.
+        $moiNhat = $duAn->vanBan()->first();
+        $duAn->forceFill([
+            'so_van_ban' => $moiNhat?->so_van_ban,
+            'ngay_van_ban' => $moiNhat?->ngay_van_ban,
+        ])->saveQuietly();
+    }
+
+    private function luuTepVanBan(\Illuminate\Http\UploadedFile $tep): string
+    {
+        $thuMuc = 'du-an-tai-lieu';
+        @mkdir(public_path($thuMuc), 0755, true);
+        $tenTep = Str::random(24).'.'.$tep->getClientOriginalExtension();
+        $tep->move(public_path($thuMuc), $tenTep);
+
+        return $thuMuc.'/'.$tenTep;
+    }
+
+    private function xoaTepVanBan(DuAnVanBan $vanBan): void
+    {
+        if ($vanBan->tep && file_exists(public_path($vanBan->tep))) {
+            @unlink(public_path($vanBan->tep));
+        }
+    }
+
+    private function diaDiemDaDung()
+    {
+        return DuAn::query()->whereNotNull('dia_diem')->distinct()->orderBy('dia_diem')->pluck('dia_diem');
+    }
+
+    private function taiKhoanChuDauTu()
+    {
+        return User::query()->where('vai_tro', 'chu_dau_tu')->orderBy('name')->get();
+    }
+
+    /** Danh sách lớp hình học hiện có của dự án, dạng mảng thuần để nạp vào JS của form */
+    private function hinhHocBanDau(DuAn $duAn): array
+    {
+        return $duAn->hinhHoc->map(fn ($h) => [
+            'loai' => $h->loai,
+            'ten' => $h->ten,
+            'toa_do' => $h->toa_do,
+            'nhan_diem' => $h->nhan_diem,
+            'hien_thi' => $h->hien_thi,
+            'bieu_tuong' => $h->bieu_tuong ?? 'diem_moc',
+        ])->values()->all();
+    }
+
+    /**
+     * Thay hẳn danh sách lớp hình học bằng danh sách gửi lên từ form (đơn giản, dễ đúng hơn dò khác
+     * biệt). $danhSach null = form không gửi dữ liệu bản đồ → giữ nguyên, không xoá.
+     */
+    private function dongBoHinhHoc(DuAn $duAn, ?array $danhSach): void
+    {
+        if ($danhSach === null) {
+            return;
+        }
+        $duAn->hinhHoc()->delete();
+
+        foreach ($danhSach as $i => $l) {
+            $duAn->hinhHoc()->create([
+                'loai' => $l['loai'],
+                'ten' => $l['ten'] ?? null,
+                // Dữ liệu qua validate chỉ kiểm tra numeric, không tự ép kiểu — phải ép (float)
+                // tường minh ở đây, nếu không toạ độ lưu vào JSON dưới dạng chuỗi ("17.9" thay vì 17.9).
+                'toa_do' => array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $l['toa_do']),
+                'nhan_diem' => $l['loai'] === 'diem' ? ($l['nhan_diem'] ?? null) : null,
+                'bieu_tuong' => $l['loai'] === 'diem' ? ($l['bieu_tuong'] ?? 'diem_moc') : null,
+                'hien_thi' => filter_var($l['hien_thi'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                'thu_tu' => $i,
+            ]);
+        }
+    }
+
+    /**
+     * Đọc TOÀN BỘ điểm/đường/vùng từ file KML, KMZ hoặc GeoJSON để điền vào form, chưa lưu vào CSDL.
+     * Giữ nguyên số lượng lớp có trong file (nhiều điểm, nhiều đường... đều được giữ lại riêng biệt),
+     * không chỉ lấy đại diện 1 điểm + 1 hình như trước.
+     */
+    public function viTriTuFile(Request $request, DocDuLieuKhongGian $doc)
+    {
+        $request->validate([
+            'tep' => ['required', 'file', 'max:10240'], // 10 MB
+        ], [], ['tep' => 'file vị trí']);
+
+        $tep = $request->file('tep');
+        $duoi = strtolower($tep->getClientOriginalExtension());
+
+        if (! in_array($duoi, ['geojson', 'json', 'kml', 'kmz'], true)) {
+            return response()->json(['message' => 'Chỉ nhận file GeoJSON, KML hoặc KMZ.'], 422);
+        }
+
+        try {
+            $features = $doc->doc($tep->getRealPath(), $tep->getClientOriginalName());
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $lop = [];
+        $toaDoDiem = [];
+        $nhanDiem = [];
+
+        foreach ($features as $f) {
+            $hinhHoc = $f['geometry'] ?? null;
+            if (! $hinhHoc || empty($hinhHoc['coordinates'])) {
+                continue;
+            }
+
+            $ten = $f['properties']['name'] ?? null;
+            $ten = $ten !== null && $ten !== '' ? mb_substr((string) $ten, 0, 255) : null;
+
+            if ($hinhHoc['type'] === 'Point') {
+                // Gom mọi điểm rời của file vào chung 1 lớp "điểm" (giữ nguyên tên từng điểm
+                // qua nhan_diem) thay vì tạo riêng 1 lớp cho mỗi điểm — file khảo sát/GPS thường
+                // có hàng trăm điểm mốc, tách lớp riêng từng điểm sẽ không thể ẩn/hiện gộp được.
+                $toaDoDiem[] = [round($hinhHoc['coordinates'][1], 7), round($hinhHoc['coordinates'][0], 7)];
+                $nhanDiem[] = $ten;
+            } elseif ($hinhHoc['type'] === 'MultiPoint') {
+                // Placemark KML gộp nhiều điểm trong 1 MultiGeometry — rã ra, gộp chung vào
+                // cùng 1 lớp "điểm" như trên, mỗi điểm vẫn giữ tên chung của Placemark.
+                foreach ($hinhHoc['coordinates'] as $toa) {
+                    $toaDoDiem[] = [round($toa[1], 7), round($toa[0], 7)];
+                    $nhanDiem[] = $ten;
+                }
+            } elseif ($hinhHoc['type'] === 'LineString' && count($hinhHoc['coordinates']) >= 2) {
+                $lop[] = [
+                    'loai' => 'duong',
+                    'ten' => $ten,
+                    'toa_do' => array_map(fn ($p) => [round($p[1], 7), round($p[0], 7)], $hinhHoc['coordinates']),
+                ];
+            } elseif ($hinhHoc['type'] === 'MultiLineString') {
+                // Placemark gộp 1 tuyến vẽ thành nhiều đoạn rời — mỗi đoạn vẫn là 1 lớp "đường"
+                // riêng vì đây là hình thức phổ biến nhất hiện có cho lớp đường.
+                foreach ($hinhHoc['coordinates'] as $doan) {
+                    if (count($doan) >= 2) {
+                        $lop[] = [
+                            'loai' => 'duong',
+                            'ten' => $ten,
+                            'toa_do' => array_map(fn ($p) => [round($p[1], 7), round($p[0], 7)], $doan),
+                        ];
+                    }
+                }
+            } elseif ($hinhHoc['type'] === 'Polygon') {
+                $vong = $hinhHoc['coordinates'][0] ?? [];
+                // Bỏ đỉnh cuối nếu chỉ lặp lại đỉnh đầu để khép vòng (quy ước GeoJSON/KML)
+                if (count($vong) > 1 && $vong[0] == $vong[count($vong) - 1]) {
+                    array_pop($vong);
+                }
+                if (count($vong) >= 3) {
+                    $lop[] = [
+                        'loai' => 'vung',
+                        'ten' => $ten,
+                        'toa_do' => array_map(fn ($p) => [round($p[1], 7), round($p[0], 7)], $vong),
+                    ];
+                }
+            } elseif ($hinhHoc['type'] === 'MultiPolygon') {
+                foreach ($hinhHoc['coordinates'] as $polygon) {
+                    $vong = $polygon[0] ?? [];
+                    if (count($vong) > 1 && $vong[0] == $vong[count($vong) - 1]) {
+                        array_pop($vong);
+                    }
+                    if (count($vong) >= 3) {
+                        $lop[] = [
+                            'loai' => 'vung',
+                            'ten' => $ten,
+                            'toa_do' => array_map(fn ($p) => [round($p[1], 7), round($p[0], 7)], $vong),
+                        ];
+                    }
+                }
+            }
+        }
+
+        if ($toaDoDiem) {
+            array_unshift($lop, [
+                'loai' => 'diem',
+                'ten' => count($toaDoDiem) > 1 ? null : $nhanDiem[0],
+                'toa_do' => $toaDoDiem,
+                'nhan_diem' => count($toaDoDiem) > 1 ? $nhanDiem : null,
+                'bieu_tuong' => 'diem_moc',
+            ]);
+        }
+
+        if (! $lop) {
+            return response()->json([
+                'message' => 'File không chứa điểm, đường hay vùng nào đọc được.',
+            ], 422);
+        }
+
+        // Gợi ý toạ độ đại diện cho dự án: điểm đầu tiên trong file, hoặc trọng tâm
+        // lớp đường/vùng đầu tiên nếu file không có điểm nào riêng.
+        $diem = null;
+        foreach ($lop as $l) {
+            if ($l['loai'] === 'diem') {
+                $diem = $l['toa_do'][0];
+                break;
+            }
+        }
+        if ($diem === null) {
+            $toaDo = $lop[0]['toa_do'];
+            $diem = [
+                round(array_sum(array_column($toaDo, 0)) / count($toaDo), 7),
+                round(array_sum(array_column($toaDo, 1)) / count($toaDo), 7),
+            ];
+        }
+
+        return response()->json([
+            'vi_do' => $diem[0],
+            'kinh_do' => $diem[1],
+            'lop' => $lop,
+        ]);
+    }
+}

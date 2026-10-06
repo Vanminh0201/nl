@@ -1,0 +1,46 @@
+<?php
+
+return [
+    /*
+    | Cấp điện áp tối thiểu của trạm biến áp khi tính khoảng cách từ dự án.
+    | Đặt 0 để tính với mọi cấp điện áp.
+    */
+    'nguong_kv' => env('DUAN_NGUONG_KV', 110),
+
+    /* Tâm và mức phóng mặc định của bản đồ */
+    'ban_do' => [
+        'vi_do' => env('DUAN_BAN_DO_LAT', 17.30),
+        'kinh_do' => env('DUAN_BAN_DO_LNG', 106.75),
+        'muc_phong' => env('DUAN_BAN_DO_ZOOM', 8),
+
+        // Lớp nền mặc định, dùng cho bản đồ nhỏ ở trang thêm/sửa và chi tiết dự án
+        // (không có bộ chọn lớp, chỉ trang Bản đồ chính mới có).
+        'tile' => env('DUAN_BAN_DO_TILE', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'),
+        'ghi_nguon' => env('DUAN_BAN_DO_ATTR', 'Tiles © Esri'),
+
+        // Các lớp nền cho bộ chọn ở trang Bản đồ chính. CARTO và tile.openstreetmap.org
+        // (máy chủ tile chính thức của OSM) đều không dùng được: CARTO nay bắt buộc phải có
+        // API key, còn OSM chỉ dành cho thử nghiệm nhẹ và một số mạng/nhà mạng chặn thẳng domain
+        // này. Esri ArcGIS Online cho dùng tile không cần khoá với mức truy cập vừa phải.
+        'lop_nen' => [
+            'pho' => [
+                'ten' => 'Đường phố',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri',
+            ],
+            've_tinh' => [
+                'ten' => 'Vệ tinh',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri — Nguồn: Esri, Maxar, Earthstar Geographics',
+            ],
+            'dia_hinh' => [
+                'ten' => 'Địa hình',
+                'tile' => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+                'ghi_nguon' => 'Tiles © Esri',
+            ],
+        ],
+    ],
+
+    /* Số đối tượng hạ tầng tối đa trả về cho một khung nhìn */
+    'gioi_han_ha_tang' => env('DUAN_GIOI_HAN_HA_TANG', 4000),
+];

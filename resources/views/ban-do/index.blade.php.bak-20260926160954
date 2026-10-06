@@ -1,0 +1,146 @@
+@extends('layouts.app')
+@section('tieu_de', 'Bản đồ dự án công nghiệp')
+
+@push('dau_trang')
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  /* Riêng trang Bản đồ: khoá khung đúng bằng chiều cao màn hình. Chỉ có min-height thì danh sách
+     dài ở sidebar kéo cả trang dài ra, Leaflet tưởng bản đồ cao hàng nghìn px nên "bay tới" dự án
+     lại căn điểm vào giữa khung ảo đó — rơi ra ngoài vùng nhìn thấy. */
+  .app{height:100dvh;min-height:0}
+</style>
+@endpush
+
+@php
+  // Phân quyền xem (trang Tài khoản): tra cứu lưới điện cần có lớp lưới điện vẽ trên bản đồ
+  $xemLuoiDien = auth()->user()->duocXem('luoi_dien');
+  $traCuuLuoiDien = $xemLuoiDien && auth()->user()->duocXem('tra_cuu_luoi_dien');
+@endphp
+
+@section('noi_dung')
+<div class="mapview">
+  <aside id="asideBanDo" class="thu-gon">
+    <button type="button" class="panel-dong" id="dongAside" title="Thu gọn khung bên">‹</button>
+    <div class="aside-tab">
+      <button type="button" class="aside-tab-nut chon" data-tab="duAn">Dự án</button>
+      @if ($traCuuLuoiDien)
+        <button type="button" class="aside-tab-nut" data-tab="haTang">Lưới điện</button>
+      @endif
+    </div>
+    <div class="aside-hd" id="hdDuAn">
+      <input type="search" id="tuKhoa" placeholder="Tìm tên dự án, chủ đầu tư, địa điểm">
+      <div class="hai">
+        <select id="locLoaiHinh">
+          <option value="">Mọi loại hình</option>
+          @foreach ($dsLoaiHinh as $ma => $l)
+            <option value="{{ $ma }}">{{ $l->ten }}</option>
+          @endforeach
+        </select>
+        <select id="locTrangThai">
+          <option value="">Mọi trạng thái</option>
+          @foreach ($dsTrangThai as $ten => $t)
+            <option value="{{ $ten }}">{{ $ten }}</option>
+          @endforeach
+        </select>
+      </div>
+      <div class="count" id="dem">Đang tải…</div>
+    </div>
+    <div class="ds" id="danhSach"></div>
+    @if ($traCuuLuoiDien)
+      <div class="aside-hd" id="hdHaTang" style="display:none">
+        <input type="search" id="tuKhoaHaTang" placeholder="Tìm tên tuyến, TBA">
+        <div class="count" id="demHaTang"></div>
+      </div>
+      <div class="ds" id="dsHaTang" style="display:none"></div>
+    @endif
+  </aside>
+
+  <div class="mapwrap">
+    <div id="map"></div>
+    <button type="button" class="panel-mo hien" id="moKhungBen"><span class="ico">☰</span> Mục lục</button>
+    <div class="maptools">
+      <div class="muc-luc cai-dat-ban-do">
+        <button type="button" class="muc-luc-nut" id="moCaiDatBanDo" aria-expanded="false">
+          <span class="ico">⚙</span> Cài đặt
+        </button>
+        <div class="muc-luc-bang" id="caiDatBanDoBang" hidden>
+          <select id="locNen" class="btn" style="padding:6px 9px">
+            @foreach (config('duan.ban_do.lop_nen') as $ma => $l)
+              <option value="{{ $ma }}" @selected($ma === 've_tinh')>{{ $l['ten'] }}</option>
+            @endforeach
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="locHienTenDuAn" title="Cụm dự án sát nhau chỉ hiện bớt tên cho khỏi đè chữ — phóng to để thấy đủ"> Hiện tên dự án
+          </label>
+          @if ($xemLuoiDien)
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="locAnDiem" title="Ẩn điểm cột/tháp, vẫn giữ hiện trạm biến áp"> Ẩn điểm cột
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="locHienTenDiem"> Hiện tên điểm lưới điện
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink-2)">
+            Độ dày đường (px)
+            <input type="number" id="locDoDayDuong" class="btn" style="padding:6px 9px"
+                   min="0.5" max="10" step="0.5" placeholder="Mặc định theo cấp điện áp">
+          </label>
+          @endif
+          <button type="button" id="datLaiTuyChon" class="btn sm" style="margin-top:4px"
+                  title="Các tuỳ chọn, dự án đã ẩn và khung đang mở được trình duyệt ghi nhớ cho lần sau — bấm để quay về mặc định">
+            Đặt lại mặc định
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="legend thu-gon" id="legendBanDo">
+      <div class="legend-hd">
+        <span>Chú giải</span>
+        <button type="button" id="dongLegend" title="Thu gọn chú giải">×</button>
+      </div>
+      <h4>Loại hình dự án</h4>
+      <div id="chuGiaiLoaiHinh">
+        @foreach ($dsLoaiHinh as $l)
+          <div class="chugiai-hang" data-bieu-tuong="{{ $l->bieu_tuong }}" data-mau="{{ $l->mau }}">
+            <span class="chugiai-icon"></span>{{ $l->ten }}
+          </div>
+        @endforeach
+      </div>
+      <div class="chugiai-ghi" style="margin-top:5px">Nguồn điện chưa vận hành: màu nhạt hơn</div>
+      <div class="chugiai-ghi">Điện gió đang vận hành: cánh quạt quay</div>
+      <div class="chugiai-ghi">Thuỷ điện đang vận hành: sóng nước chảy</div>
+      @if ($xemLuoiDien)
+        <h4 style="margin-top:9px">Lưới điện</h4>
+        <div><i class="duong" style="background:#c0392b"></i>≥500 kV</div>
+        <div><i class="duong" style="background:#d97b2a"></i>220 kV</div>
+        <div><i class="duong" style="background:#2f6fae"></i>110 kV</div>
+        <div><i class="duong" style="background:#6f8390"></i>22–35 kV</div>
+      @endif
+    </div>
+    <button type="button" class="panel-mo hien" id="moLegend"><span class="ico">▤</span> Chú giải</button>
+    <div class="canhbao" id="canhBao"></div>
+  </div>
+</div>
+@endsection
+
+@push('cuoi_trang')
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+window.CAU_HINH_BAN_DO = @json(config('duan.ban_do'));
+window.DUONG_DAN = {
+  duAn: @json(route('api.du-an')),
+  @if ($xemLuoiDien)
+  haTang: @json(route('api.ha-tang')),
+  @endif
+  @if ($traCuuLuoiDien)
+  thongKeHaTang: @json(route('api.thong-ke-ha-tang')),
+  @endif
+  @if (in_array(auth()->user()->vai_tro, ['quan_tri', 'nhap_lieu']))
+  anHienLop: @json(route('lop-ha-tang.toggle', ['lopHaTang' => '__ID__'])),
+  @endif
+};
+window.DS_BIEU_TUONG = @json($dsBieuTuong);
+window.MA_NGUOI_DUNG = @json(auth()->id());
+</script>
+<script src="{{ asset('js/bieu-tuong.js') }}?v={{ filemtime(public_path('js/bieu-tuong.js')) }}"></script>
+<script src="{{ asset('js/ban-do.js') }}?v={{ filemtime(public_path('js/ban-do.js')) }}"></script>
+@endpush

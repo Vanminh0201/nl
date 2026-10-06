@@ -1,0 +1,264 @@
+/* Trang soạn báo cáo (tuần: bao-cao/soan, tháng: bao-cao/thang/soan) — đánh dấu từng ô bắt buộc chưa
+   nhập / giống kỳ trước (cần rà soát) / đã cập nhật, đếm theo từng phần, mục lục bên trái, tự giãn ô
+   chữ, viết lại số kiểu Việt Nam. Cấu hình qua data-* của form#formBaoCao:
+     data-ky-truoc: "tuần trước" / "tháng trước" — dùng trong các nhãn
+     data-xac-nhan: câu hỏi xác nhận khi gửi báo cáo */
+(function () {
+  'use strict';
+
+  var form = document.getElementById('formBaoCao');
+  if (!form) return;
+  var kyTruoc = form.dataset.kyTruoc || 'kỳ trước';
+  var dsO = Array.prototype.slice.call(form.querySelectorAll('[data-o]'));
+  var dsPhan = Array.prototype.slice.call(form.querySelectorAll('[data-phan]'));
+  var NHAN = {
+    thieu: 'Bắt buộc · chưa nhập',
+    giu: 'Giống ' + kyTruoc,
+    moi: 'Đã cập nhật',
+    moiDau: 'Đã nhập',
+  };
+
+  function chuanHoa(s) {
+    return String(s == null ? '' : s).replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim();
+  }
+  // Số gõ kiểu Việt Nam (99,65) hay kiểu máy (99.65) đều đọc được — cùng quy tắc với
+  // BaoCaoTuanDuAn::chuanHoaSoThapPhan phía máy chủ: có dấu phẩy thì phẩy là thập phân, chấm là
+  // phân cách nghìn; không có phẩy thì chấm chia nhóm 3 chữ số là phân cách nghìn.
+  function soNhap(s) {
+    var v = String(s == null ? '' : s).replace(/\s/g, '');
+    if (v.indexOf(',') >= 0) v = v.replace(/\./g, '').replace(',', '.');
+    else if (/^\d{1,3}(\.\d{3})+$/.test(v)) v = v.replace(/\./g, '');
+    return v === '' ? NaN : Number(v);
+  }
+  function dinhDangVN(n, le) {
+    return n.toLocaleString('vi-VN', { maximumFractionDigits: le });
+  }
+  function oNhap(o) {
+    return o.querySelector('textarea, input:not([type=checkbox]), select');
+  }
+
+  // Trạng thái 1 ô: thieu (bắt buộc mà trống) · giu (y nguyên như kỳ trước) · moi (đã đổi/đã nhập)
+  // · trong (không bắt buộc, để trống) · du (ô không so sánh đã có giá trị — không cần nhấn mạnh)
+  // · bo-qua (thuộc dự án không đưa vào báo cáo)
+  function trangThai(o) {
+    var muc = o.closest('[data-muc]');
+    if (muc && muc.classList.contains('tat')) return 'bo-qua';
+    var v = chuanHoa(oNhap(o).value);
+    if (!v) return o.hasAttribute('data-bat-buoc') ? 'thieu' : 'trong';
+    if (!o.hasAttribute('data-so-sanh')) return 'du';
+    var t = chuanHoa(o.getAttribute('data-truoc'));
+    if (t !== '') {
+      var giong = o.hasAttribute('data-so') ? soNhap(v) === soNhap(t) : v === t;
+      if (giong) return 'giu';
+    }
+    return 'moi';
+  }
+
+  function capNhatO(o) {
+    var tt = trangThai(o);
+    o.classList.remove('thieu', 'giu', 'moi', 'trong', 'du', 'bo-qua');
+    o.classList.add(tt);
+    o.dataset.trangThai = tt;
+    var nhan = o.querySelector('[data-nhan]');
+    if (nhan) {
+      nhan.textContent = tt === 'moi' ? (chuanHoa(o.getAttribute('data-truoc')) ? NHAN.moi : NHAN.moiDau) : (NHAN[tt] || '');
+    }
+  }
+
+  function demTrong(goc) {
+    var d = { thieu: 0, giu: 0, moi: 0 };
+    Array.prototype.forEach.call(goc.querySelectorAll('[data-o]'), function (o) {
+      if (d[o.dataset.trangThai] !== undefined) d[o.dataset.trangThai]++;
+    });
+    return d;
+  }
+
+  function chipHtml(d, laVanBan) {
+    var ds = [];
+    if (d.thieu) ds.push('<span class="bcs-chip thieu">' + d.thieu + ' bắt buộc chưa nhập</span>');
+    if (d.giu) ds.push('<span class="bcs-chip giu">' + d.giu + ' giống ' + kyTruoc + '</span>');
+    if (!ds.length) ds.push('<span class="bcs-chip moi">' + (laVanBan ? 'Đủ thông tin' : 'Đã cập nhật') + '</span>');
+    return ds.join('');
+  }
+
+  function capNhatTong() {
+    var tong = { thieu: 0, giu: 0, moi: 0 };
+    dsPhan.forEach(function (phan) {
+      var laVanBan = phan.dataset.phan === 'van-ban';
+      var boQua = phan.classList.contains('tat');
+      var d = demTrong(phan);
+      Object.keys(tong).forEach(function (k) { tong[k] += d[k]; });
+      var chip = phan.querySelector('[data-chip]');
+      if (chip) chip.innerHTML = boQua ? '<span class="bcs-chip bo-qua">Không đưa vào</span>' : chipHtml(d, laVanBan);
+
+      var nav = form.querySelector('[data-nav="' + phan.dataset.phan + '"]');
+      if (nav) {
+        nav.classList.toggle('bo-qua', boQua);
+        var dem = nav.querySelector('[data-dem]');
+        dem.innerHTML = boQua ? '<span class="bcs-dem bo-qua">—</span>'
+          : (d.thieu ? '<span class="bcs-dem thieu" title="Bắt buộc chưa nhập">' + d.thieu + '</span>' : '')
+            + (d.giu ? '<span class="bcs-dem giu" title="Giống ' + kyTruoc + '">' + d.giu + '</span>' : '')
+            + (!d.thieu && !d.giu ? '<span class="bcs-dem moi" title="Đã cập nhật">✓</span>' : '');
+      }
+    });
+
+    Object.keys(tong).forEach(function (k) {
+      var el = form.querySelector('[data-tong="' + k + '"]');
+      if (el) el.textContent = tong[k];
+    });
+    form.querySelector('[data-toi="thieu"]').classList.toggle('xong', !tong.thieu);
+    form.querySelector('[data-toi="giu"]').classList.toggle('xong', !tong.giu);
+
+    var tomTat = form.querySelector('[data-tom-tat]');
+    tomTat.innerHTML = tong.thieu
+      ? '<b class="mau-thieu">Còn ' + tong.thieu + ' mục bắt buộc chưa nhập</b>' + (tong.giu ? ' · ' + tong.giu + ' mục giống ' + kyTruoc : '')
+      : (tong.giu ? '<b class="mau-giu">' + tong.giu + ' mục giống ' + kyTruoc + '</b> — rà soát trước khi gửi' : '<b class="mau-moi">Đã điền đủ các mục bắt buộc</b>');
+    form.querySelector('[data-toi-tiep]').hidden = !tong.thieu && !tong.giu;
+    return tong;
+  }
+
+  function tuGian(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = (ta.scrollHeight + 2) + 'px';
+  }
+
+  function nhayToi(o) {
+    var vb = o.closest('details');
+    if (vb && !vb.open) vb.open = true;
+    o.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    o.classList.add('nhay');
+    setTimeout(function () { o.classList.remove('nhay'); }, 1600);
+  }
+
+  function toiMucCan() {
+    var o = dsO.find(function (x) { return x.dataset.trangThai === 'thieu'; })
+      || dsO.find(function (x) { return x.dataset.trangThai === 'giu'; });
+    if (!o) return;
+    nhayToi(o);
+    var el = oNhap(o);
+    if (el) setTimeout(function () { el.focus({ preventScroll: true }); }, 400);
+  }
+
+  dsO.forEach(function (o) {
+    var el = oNhap(o);
+    capNhatO(o);
+    el.addEventListener('input', function () { capNhatO(o); capNhatTong(); });
+    el.addEventListener('change', function () { capNhatO(o); capNhatTong(); });
+  });
+  // Rời ô số thì viết lại theo kiểu Việt Nam (41.130,929) để người nhập thấy ngay máy hiểu số thế nào
+  Array.prototype.forEach.call(form.querySelectorAll('[data-dinh-dang]'), function (el) {
+    el.addEventListener('blur', function () {
+      var n = soNhap(el.value);
+      if (isNaN(n) || el.value.trim() === '') return;
+      var moi = dinhDangVN(n, parseInt(el.dataset.dinhDang, 10));
+      if (moi !== el.value) {
+        el.value = moi;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  });
+
+  Array.prototype.forEach.call(form.querySelectorAll('[data-tu-gian]'), function (ta) {
+    tuGian(ta);
+    ta.addEventListener('input', function () { tuGian(ta); });
+  });
+  // Ô nằm trong khối đang đóng (details/dự án bỏ chọn) chưa có chiều cao thật — tính lại khi mở ra
+  Array.prototype.forEach.call(form.querySelectorAll('details'), function (dt) {
+    dt.addEventListener('toggle', function () {
+      Array.prototype.forEach.call(dt.querySelectorAll('[data-tu-gian]'), tuGian);
+    });
+  });
+
+  Array.prototype.forEach.call(form.querySelectorAll('[data-muc]'), function (muc) {
+    var chon = muc.querySelector('[data-chon-muc]');
+    chon.addEventListener('change', function () {
+      muc.classList.toggle('tat', !chon.checked);
+      Array.prototype.forEach.call(muc.querySelectorAll('[data-o]'), capNhatO);
+      Array.prototype.forEach.call(muc.querySelectorAll('[data-tu-gian]'), tuGian);
+      capNhatTong();
+    });
+
+    // Tiến độ tổng thể (báo cáo tuần): thanh % chạy theo số vừa gõ
+    var tienDo = muc.querySelector('[data-tien-do]');
+    var thanh = muc.querySelector('[data-thanh-tien-do]');
+    if (tienDo && thanh) {
+      tienDo.addEventListener('input', function () {
+        thanh.style.width = Math.max(0, Math.min(100, soNhap(tienDo.value) || 0)) + '%';
+      });
+    }
+
+    // Giải ngân (báo cáo tuần): tự tính tỷ lệ so với kế hoạch năm và tổng mức đầu tư
+    var khung = muc.querySelector('[data-giai-ngan]');
+    if (!khung) return;
+    var tiLe = khung.querySelector('[data-ti-le]');
+    function so(cot) {
+      var v = soNhap(khung.querySelector('[data-so-gn="' + cot + '"]').value);
+      return isNaN(v) ? null : v;
+    }
+    function phanTram(a, b) {
+      return (a / b * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + '%';
+    }
+    function tinh() {
+      var dong = [];
+      var gn = so('giai_ngan_nam'), kh = so('ke_hoach_von_nam'), lk = so('luy_ke_giai_ngan'), tm = so('tong_muc_dau_tu');
+      if (gn !== null && kh) dong.push('Giải ngân năm đạt ' + phanTram(gn, kh) + ' kế hoạch');
+      if (lk !== null && tm) dong.push('lũy kế đạt ' + phanTram(lk, tm) + ' tổng mức đầu tư');
+      tiLe.textContent = dong.length ? dong.join('; ') + '.' : '';
+    }
+    khung.addEventListener('input', tinh);
+    tinh();
+  });
+
+  form.querySelector('[data-toi="thieu"]').addEventListener('click', toiMucCan);
+  form.querySelector('[data-toi="giu"]').addEventListener('click', function () {
+    var o = dsO.find(function (x) { return x.dataset.trangThai === 'giu'; });
+    if (o) nhayToi(o);
+  });
+  form.querySelector('[data-toi-tiep]').addEventListener('click', toiMucCan);
+
+  // Đánh dấu phần đang xem trong mục lục bên trái
+  if ('IntersectionObserver' in window) {
+    var quanSat = new IntersectionObserver(function (ds) {
+      ds.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        Array.prototype.forEach.call(form.querySelectorAll('.bcs-nav-muc'), function (a) {
+          a.classList.toggle('dang-xem', a.dataset.nav === e.target.dataset.phan);
+        });
+      });
+    }, { rootMargin: '-35% 0px -60% 0px' });
+    dsPhan.forEach(function (p) { quanSat.observe(p); });
+  }
+  Array.prototype.forEach.call(form.querySelectorAll('.bcs-nav-muc'), function (a) {
+    a.addEventListener('click', function (e) {
+      var dich = document.querySelector(a.getAttribute('href'));
+      if (!dich) return;
+      e.preventDefault();
+      dich.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  var daSua = false;
+  form.addEventListener('input', function () { daSua = true; });
+  form.addEventListener('change', function () { daSua = true; });
+  form.addEventListener('submit', function (e) {
+    if (e.submitter && e.submitter.hasAttribute('data-nop')) {
+      var tong = capNhatTong();
+      if (tong.thieu) {
+        e.preventDefault();
+        toiMucCan();
+        return;
+      }
+      if (!confirm((form.dataset.xacNhan || 'Gửi báo cáo cho Sở Công Thương?')
+          + (tong.giu ? '\n\nCòn ' + tong.giu + ' mục giống hệt ' + kyTruoc + ' — bạn đã rà soát các mục này?' : ''))) {
+        e.preventDefault();
+        return;
+      }
+    }
+    daSua = false;
+  });
+  window.addEventListener('beforeunload', function (e) {
+    if (daSua) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  capNhatTong();
+})();

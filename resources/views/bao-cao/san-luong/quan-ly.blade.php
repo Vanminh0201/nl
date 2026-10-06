@@ -1,0 +1,205 @@
+@extends('layouts.app')
+@section('tieu_de', 'Sản lượng điện tháng')
+
+@php
+  use App\Support\BaoCaoSanLuong as SL;
+  $kyCanBao = SL::kyCanBao();
+  $laKyCanBao = $ky->bang($kyCanBao);
+  $quaHan = SL::quaHan($ky);
+  $nhomKy = [];
+  foreach (array_reverse($dsKyChon) as $k) {
+    $nhomKy['Năm '.$k->nam][] = [
+      'url' => route('bao-cao.san-luong.index', ['ky' => $k->ma()]),
+      'ten' => 'Tháng '.$k->thang,
+      'phu' => 'Hạn gửi '.SL::hanNop($k)->format('d/m/Y'),
+      'chon' => $k->bang($ky),
+      'hien_tai' => $k->bang($kyCanBao),
+      'tinh_hinh' => $tinhHinhKy[$k->ma()] ?? null,
+    ];
+  }
+  $oKpi = [
+    ['k-tong', 'san-luong', $dem['van_hanh'], 'Dự án phát điện'],
+    ['k-xong', 'xong', $dem['co_so'], 'Đã gửi số liệu'],
+    ['k-chua', 'chua', $dem['chua'], 'Chưa gửi'],
+    ['k-bo-sung', 'don-vi', $dem['chua_gan'], 'Chưa gán tài khoản'],
+  ];
+  $phanTram = fn (?float $p) => $p === null ? null : ($p >= 0 ? '+' : '−').SL::so(abs($p), 1).'%';
+  $gio = fn ($t) => $t ? $t->copy()->setTimezone(\App\Support\KyBaoCao::MUI_GIO)->format('d/m/Y H:i') : '';
+  $stt = 1;
+@endphp
+
+@section('noi_dung')
+<div class="pad bc-trang">
+  @include('bao-cao._tab', ['dangChon' => 'bao-cao.san-luong.index'])
+  @if ($errors->any())
+    <div class="loi" style="margin:0">{{ $errors->first() }}</div>
+  @endif
+
+  <div class="bc-thanh-ky bc-ky">
+    @include('bao-cao._chon-ky', [
+      'ten' => 'Sản lượng '.mb_strtolower($ky->ten()),
+      'phu' => 'Hạn gửi '.SL::hanNop($ky)->format('d/m/Y'),
+      'truoc' => ['url' => route('bao-cao.san-luong.index', ['ky' => $ky->truoc()->ma()]), 'ten' => 'Tháng trước'],
+      'sau' => $laKyCanBao ? null : ['url' => route('bao-cao.san-luong.index', ['ky' => $ky->sau()->ma()]), 'ten' => 'Tháng sau'],
+      'nhom' => $nhomKy,
+    ])
+    @unless ($laKyCanBao)
+      <a href="{{ route('bao-cao.san-luong.index') }}" class="btn bc-nut">Về tháng cần báo cáo</a>
+    @endunless
+    <span class="bc-ky-gian"></span>
+    <a href="{{ route('bao-cao.san-luong.thong-ke', ['nam' => $ky->nam]) }}" class="btn primary bc-nut">@include('bao-cao._icon', ['ten' => 'bieu-do'])Thống kê sản lượng</a>
+  </div>
+
+  <div class="bc-kpi">
+    @foreach ($oKpi as [$lop, $icon, $soLuong, $nhan])
+      <div class="bc-kpi-o {{ $lop }} {{ $soLuong ? '' : 'rong' }}">
+        <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => $icon, 'co' => 21])</span>
+        <div class="bc-kpi-noi"><b>{{ $soLuong }}</b><span>{{ $nhan }}</span></div>
+      </div>
+    @endforeach
+    <div class="bc-kpi-o k-cho {{ $tong ? '' : 'rong' }}">
+      <span class="bc-kpi-icon">@include('bao-cao._icon', ['ten' => 'bieu-do', 'co' => 21])</span>
+      <div class="bc-kpi-noi">
+        <b>{{ SL::so(SL::trieu($tong), 2) }}</b><span>Triệu kWh trong tháng</span>
+        @if ($soTruoc !== null || $soCungKy !== null)
+          <small class="sl-kpi-phu">
+            @if ($soTruoc !== null)<i class="{{ $soTruoc >= 0 ? 'sl-tang' : 'sl-giam' }}">{{ $phanTram($soTruoc) }}</i> so tháng trước @endif
+            @if ($soCungKy !== null)· <i class="{{ $soCungKy >= 0 ? 'sl-tang' : 'sl-giam' }}">{{ $phanTram($soCungKy) }}</i> so cùng kỳ @endif
+          </small>
+        @endif
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-hd sl-hd">
+      <h2>Tình hình gửi sản lượng điện {{ mb_strtolower($ky->ten()) }}</h2>
+      @if ($coTheXuLy && $choTiepNhan->isNotEmpty())
+        <form method="post" action="{{ route('bao-cao.san-luong.xu-ly') }}">
+          @csrf
+          @foreach ($choTiepNhan as $id)<input type="hidden" name="ids[]" value="{{ $id }}">@endforeach
+          <button class="btn primary sm" name="hanh_dong" value="tiep_nhan">Tiếp nhận tất cả ({{ $choTiepNhan->count() }})</button>
+        </form>
+      @endif
+    </div>
+    <div class="tablewrap" style="border:0;border-radius:0">
+      <table class="sl-bang">
+        <thead>
+          <tr>
+            <th class="giua">STT</th><th>Dự án</th><th>Chủ đầu tư (tài khoản)</th><th class="num">Công suất (MW)</th>
+            <th class="num">Sản lượng (kWh)</th><th class="num">{{ $ky->truoc()->ten() }}</th><th class="num">Tháng {{ $ky->thang }}/{{ $ky->nam - 1 }}</th>
+            <th>Ghi chú</th><th class="giua">Trạng thái</th>
+          </tr>
+        </thead>
+        <tbody>
+        @forelse ($nhom as $lh => $ds)
+          @php $tongNhom = $ds->sum(fn ($h) => $h['dong']?->daCo() ? $h['dong']->san_luong : 0); @endphp
+          <tr class="sl-nhom">
+            <td colspan="9">{{ $dsLoaiHinh[$lh]->ten ?? $lh }} · {{ $ds->count() }} dự án @if ($tongNhom)· {{ SL::so(SL::trieu($tongNhom), 2) }} triệu kWh @endif</td>
+          </tr>
+          @foreach ($ds as $h)
+            @php $d = $h['du_an']; $dong = $h['dong']; $tk = $d->taiKhoanChuDauTu; $co = $dong?->daCo(); @endphp
+            <tr>
+              <td class="giua">{{ $stt++ }}</td>
+              <td>
+                <a href="{{ route('bao-cao.san-luong.thong-ke', ['nam' => $ky->nam, 'du_an' => $d->id]) }}" class="sl-ten">{{ $d->ten }}</a>
+                @if (SL::phatDienThu($d))<div class="sl-phu">Phát điện thử nghiệm từ {{ mb_strtolower(\App\Support\KyThang::tuMa($d->phat_dien_tu)?->ten() ?? '') }}</div>@elseif ($d->trang_thai !== SL::TRANG_THAI_VAN_HANH)<div class="sl-phu">{{ $d->trang_thai }}</div>@endif
+              </td>
+              <td>@if ($tk){{ $tk->don_vi ?: $tk->name }}@else<span class="sl-phu">Chưa gán</span>@endif</td>
+              <td class="num">{{ SL::so($d->cong_suat_mw, 2) }}</td>
+              <td class="num">@if ($co)<b>{{ SL::so($dong->san_luong) }}</b>@elseif ($dong?->trang_thai === 'tra_lai')<span class="sl-cu">{{ SL::so($dong->san_luong) }}</span>@endif</td>
+              <td class="num sl-cu">{{ SL::so($h['truoc']?->daCo() ? $h['truoc']->san_luong : null) }}</td>
+              <td class="num sl-cu">{{ SL::so($h['cung_ky']?->daCo() ? $h['cung_ky']->san_luong : null) }}</td>
+              <td>@if ($dong?->trang_thai === 'tra_lai')<span class="sl-tra-lai">Sở trả lại: {{ $dong->y_kien_xu_ly }}</span>@elseif ($co){{ $dong->ghi_chu }}@endif</td>
+              <td>
+                <div class="sl-tt">
+                @if ($dong?->trang_thai === 'da_gui')
+                  <span class="chip cho" title="Gửi lúc {{ $gio($dong->gui_luc) }}">Chờ tiếp nhận</span>
+                  @if ($coTheXuLy)
+                    <form method="post" action="{{ route('bao-cao.san-luong.xu-ly') }}">
+                      @csrf<input type="hidden" name="ids[]" value="{{ $dong->id }}">
+                      <button class="btn sm primary" name="hanh_dong" value="tiep_nhan">Tiếp nhận</button>
+                    </form>
+                    <button type="button" class="btn sm danger" data-tra-lai="{{ $dong->id }}" data-ten="{{ $d->ten }}">Trả lại</button>
+                  @endif
+                @elseif ($dong?->trang_thai === 'da_tiep_nhan')
+                  <span class="chip co" title="Gửi lúc {{ $gio($dong->gui_luc) }}@if ($dong->xu_ly_luc) · tiếp nhận {{ $gio($dong->xu_ly_luc) }}{{ $dong->nguoiXuLy ? ' ('.$dong->nguoiXuLy->name.')' : '' }}@endif">Đã tiếp nhận</span>
+                  @if ($coTheXuLy)
+                    <button type="button" class="btn sm danger" data-tra-lai="{{ $dong->id }}" data-ten="{{ $d->ten }}">Trả lại</button>
+                  @endif
+                @elseif ($dong?->trang_thai === 'tra_lai')
+                  <span class="chip do" title="Trả lại lúc {{ $gio($dong->xu_ly_luc) }}{{ $dong->nguoiXuLy ? ' ('.$dong->nguoiXuLy->name.')' : '' }}">Đã trả lại</span>
+                @elseif (! $tk)
+                  <span class="chip" title="Gán tài khoản chủ đầu tư ở trang sửa dự án để chủ đầu tư báo cáo">Chưa gán tài khoản</span>
+                @elseif ($dong)
+                  <span class="chip cho">Đang soạn</span>
+                @else
+                  <span class="chip {{ $quaHan ? 'do' : '' }}">{{ $quaHan ? 'Quá hạn, chưa gửi' : 'Chưa gửi' }}</span>
+                @endif
+                </div>
+              </td>
+            </tr>
+          @endforeach
+        @empty
+          <tr><td colspan="9" class="trong">Chưa có dự án nguồn điện nào ở trạng thái "{{ SL::TRANG_THAI_VAN_HANH }}".</td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  @if ($coTheXuLy)
+    <dialog id="slTraLai" class="sl-hop">
+      <form method="post" action="{{ route('bao-cao.san-luong.xu-ly') }}">
+        @csrf
+        <input type="hidden" name="ids[]" id="slTraLaiId">
+        <input type="hidden" name="hanh_dong" value="tra_lai">
+        <h3 id="slTraLaiTen">Trả lại sản lượng</h3>
+        <textarea name="y_kien" rows="4" maxlength="2000" required placeholder="Lý do trả lại"></textarea>
+        <div class="sl-hop-nut">
+          <button type="button" class="btn" data-dong-hop>Huỷ</button>
+          <button class="btn danger">Trả lại</button>
+        </div>
+      </form>
+    </dialog>
+  @endif
+</div>
+@endsection
+
+@push('dau_trang')
+<style>
+  .sl-hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .sl-hd form{margin:0 0 0 auto}
+  .sl-tt{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;white-space:nowrap}
+  .sl-tt form{margin:0}
+  .sl-tt .btn.sm{padding:1px 9px;font-size:12px;line-height:18px}
+  .sl-tra-lai{color:var(--danger);white-space:pre-line}
+  .sl-hop{border:1px solid var(--line);border-radius:10px;padding:18px;width:min(460px,92vw)}
+  .sl-hop::backdrop{background:rgba(15,23,42,.35)}
+  .sl-hop h3{margin:0 0 10px;font-size:15px}
+  .sl-hop textarea{width:100%;box-sizing:border-box}
+  .sl-hop-nut{display:flex;justify-content:flex-end;gap:7px;margin-top:10px}
+</style>
+@endpush
+
+@push('cuoi_trang')
+<script>
+(() => {
+  const hop = document.getElementById('slTraLai');
+  if (!hop) return;
+  const oId = hop.querySelector('#slTraLaiId'), oTen = hop.querySelector('#slTraLaiTen'), oLyDo = hop.querySelector('textarea');
+  document.addEventListener('click', e => {
+    const nut = e.target.closest('[data-tra-lai]');
+    if (nut) {
+      oId.value = nut.dataset.traLai;
+      oTen.textContent = 'Trả lại sản lượng — ' + nut.dataset.ten;
+      oLyDo.value = '';
+      hop.showModal();
+      oLyDo.focus();
+    } else if (e.target.closest('[data-dong-hop]')) {
+      hop.close();
+    }
+  });
+})();
+</script>
+@endpush

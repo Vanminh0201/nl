@@ -1,0 +1,72 @@
+<?php
+
+use App\Http\Controllers\BanDoController;
+use App\Http\Controllers\DangNhapController;
+use App\Http\Controllers\DanhMucController;
+use App\Http\Controllers\DuAnController;
+use App\Http\Controllers\LopHaTangController;
+use App\Http\Controllers\ThongKeController;
+use App\Http\Controllers\XuatDuLieuController;
+use Illuminate\Support\Facades\Route;
+
+Route::middleware('guest')->group(function () {
+    Route::get('/dang-nhap', [DangNhapController::class, 'form'])->name('dang-nhap');
+    Route::post('/dang-nhap', [DangNhapController::class, 'dangNhap']);
+});
+
+Route::post('/dang-xuat', [DangNhapController::class, 'dangXuat'])
+    ->middleware('auth')
+    ->name('dang-xuat');
+
+Route::middleware('auth')->group(function () {
+    Route::get('/', fn () => redirect()->route('ban-do'));
+
+    Route::get('/ban-do', [BanDoController::class, 'index'])->name('ban-do');
+    Route::get('/api/du-an', [BanDoController::class, 'duAn'])->name('api.du-an');
+    Route::get('/api/ha-tang', [BanDoController::class, 'haTang'])->name('api.ha-tang');
+
+    // Số liệu tổng hợp và quản lý lớp hạ tầng: không dành cho tài khoản chủ đầu tư
+    // (chỉ nên thấy dự án của chính mình, không thấy số liệu gộp của các dự án khác)
+    Route::middleware('phan_quyen:quan_tri,nhap_lieu,xem')->group(function () {
+        Route::get('/thong-ke', [ThongKeController::class, 'index'])->name('thong-ke');
+        Route::get('/lop-ha-tang', [LopHaTangController::class, 'index'])->name('lop-ha-tang.index');
+        Route::get('/lop-ha-tang/{lopHaTang}/doi-tuong', [LopHaTangController::class, 'doiTuong'])->name('lop-ha-tang.doi-tuong');
+    });
+
+    Route::get('/xuat/csv', [XuatDuLieuController::class, 'csv'])->name('xuat.csv');
+    Route::get('/xuat/geojson', [XuatDuLieuController::class, 'geojson'])->name('xuat.geojson');
+
+    Route::get('/du-an', [DuAnController::class, 'index'])->name('du-an.index');
+    Route::get('/du-an/{duAn}', [DuAnController::class, 'show'])->name('du-an.show');
+
+    // Thêm, sửa, xoá: chỉ tài khoản nhập liệu và quản trị
+    Route::middleware('phan_quyen:quan_tri,nhap_lieu')->group(function () {
+        Route::get('/du-an-them/moi', [DuAnController::class, 'create'])->name('du-an.create');
+        Route::post('/du-an', [DuAnController::class, 'store'])->name('du-an.store');
+        Route::post('/du-an/vi-tri-tu-file', [DuAnController::class, 'viTriTuFile'])->name('du-an.vi-tri-tu-file');
+        Route::get('/du-an/{duAn}/sua', [DuAnController::class, 'edit'])->name('du-an.edit');
+        Route::put('/du-an/{duAn}', [DuAnController::class, 'update'])->name('du-an.update');
+
+        Route::post('/lop-ha-tang', [LopHaTangController::class, 'store'])->name('lop-ha-tang.store');
+        Route::put('/lop-ha-tang/{lopHaTang}', [LopHaTangController::class, 'update'])->name('lop-ha-tang.update');
+        Route::patch('/lop-ha-tang/{lopHaTang}', [LopHaTangController::class, 'toggle'])->name('lop-ha-tang.toggle');
+        Route::put('/doi-tuong-ha-tang/{doiTuong}', [LopHaTangController::class, 'suaDoiTuong'])->name('doi-tuong-ha-tang.update');
+    });
+
+    // Xoá, và quản lý danh mục loại hình/trạng thái: chỉ quản trị
+    Route::middleware('phan_quyen:quan_tri')->group(function () {
+        Route::delete('/du-an/{duAn}', [DuAnController::class, 'destroy'])->name('du-an.destroy');
+        Route::delete('/lop-ha-tang/{lopHaTang}', [LopHaTangController::class, 'destroy'])->name('lop-ha-tang.destroy');
+
+        Route::get('/danh-muc', [DanhMucController::class, 'index'])->name('danh-muc.index');
+        Route::post('/danh-muc/loai-hinh', [DanhMucController::class, 'themLoaiHinh'])->name('danh-muc.loai-hinh.store');
+        Route::put('/danh-muc/loai-hinh/{loaiHinh}', [DanhMucController::class, 'suaLoaiHinh'])->name('danh-muc.loai-hinh.update');
+        Route::delete('/danh-muc/loai-hinh/{loaiHinh}', [DanhMucController::class, 'xoaLoaiHinh'])->name('danh-muc.loai-hinh.destroy');
+        Route::post('/danh-muc/trang-thai', [DanhMucController::class, 'themTrangThai'])->name('danh-muc.trang-thai.store');
+        Route::put('/danh-muc/trang-thai/{trangThai}', [DanhMucController::class, 'suaTrangThai'])->name('danh-muc.trang-thai.update');
+        Route::delete('/danh-muc/trang-thai/{trangThai}', [DanhMucController::class, 'xoaTrangThai'])->name('danh-muc.trang-thai.destroy');
+        Route::post('/danh-muc/bieu-tuong', [DanhMucController::class, 'themBieuTuong'])->name('danh-muc.bieu-tuong.store');
+        Route::put('/danh-muc/bieu-tuong/{bieuTuong}', [DanhMucController::class, 'suaBieuTuong'])->name('danh-muc.bieu-tuong.update');
+        Route::delete('/danh-muc/bieu-tuong/{bieuTuong}', [DanhMucController::class, 'xoaBieuTuong'])->name('danh-muc.bieu-tuong.destroy');
+    });
+});

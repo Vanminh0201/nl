@@ -1,0 +1,1 @@
+@include('errors._khung', ['ma' => '403', 'tieuDe' => 'Không có quyền truy cập', 'loi' => 'Tài khoản của bạn không được xem hoặc thực hiện thao tác này. Nếu cần, liên hệ quản trị hệ thống để được cấp quyền.'])

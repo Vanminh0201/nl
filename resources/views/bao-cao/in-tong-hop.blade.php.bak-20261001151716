@@ -1,0 +1,88 @@
+@extends('layouts.in')
+@section('tieu_de', 'Bảng tổng hợp báo cáo '.$ky->ten())
+
+@php
+  $so = fn ($v) => \App\Models\BaoCaoTuanDuAn::so($v);
+  $pt = fn ($a, $b) => \App\Models\BaoCaoTuanDuAn::phanTram($a, $b);
+  $theoNguoi = $daGui->keyBy('nguoi_bao_cao_id');
+  $stt = 0;
+  $nam = $ky->namTaiChinh();
+  $cong = fn ($a, $b) => $b === null ? $a : ($a ?? 0) + $b;
+  $tong = ['kh' => null, 'th' => null, 'tm' => null, 'lk' => null];
+@endphp
+
+@section('noi_dung')
+  <h1>BẢNG TỔNG HỢP</h1>
+  <h2>Tình hình triển khai các dự án theo báo cáo tuần của chủ đầu tư</h2>
+  <p class="phu">Tuần {{ $ky->tuan }} năm {{ $ky->nam }} (từ ngày {{ $ky->tuNgay->format('d/m/Y') }} đến ngày {{ $ky->denNgay->format('d/m/Y') }})</p>
+
+  <h3>I. TÌNH HÌNH GỬI BÁO CÁO</h3>
+  <p>Số chủ đầu tư phải báo cáo: {{ $phaiNop->count() }}; đã gửi: {{ $daGui->count() }}
+    (đã tiếp nhận {{ $daGui->where('trang_thai', 'da_tiep_nhan')->count() }}, chờ tiếp nhận {{ $daGui->where('trang_thai', 'da_nop')->count() }},
+    yêu cầu bổ sung {{ $daGui->where('trang_thai', 'yeu_cau_bo_sung')->count() }}); chưa gửi: {{ $chuaNop->count() }}.</p>
+  <table class="in">
+    <thead><tr><th style="width:5%">STT</th><th style="width:25%">Chủ đầu tư</th><th>Dự án</th><th style="width:15%">Tình trạng</th><th style="width:14%">Thời điểm gửi</th></tr></thead>
+    <tbody>
+    @forelse ($phaiNop as $i => $u)
+      @php $b = $theoNguoi->get($u->id); @endphp
+      <tr>
+        <td class="giua">{{ $i + 1 }}</td>
+        <td>{{ $u->don_vi ?: $u->name }}</td>
+        <td>{{ $u->duAn->pluck('ten')->join('; ') }}</td>
+        <td>{{ $b ? $b->ten_trang_thai : 'Chưa gửi' }}</td>
+        <td class="giua">{{ $b?->gio('nop_luc') }}</td>
+      </tr>
+    @empty
+      <tr><td colspan="5" class="trong">Không có chủ đầu tư nào phải báo cáo trong tuần này.</td></tr>
+    @endforelse
+    </tbody>
+  </table>
+
+  <h3>II. TÌNH HÌNH TRIỂN KHAI CÁC DỰ ÁN</h3>
+  <table class="in ngat-dong">
+    <thead>
+      <tr>
+        <th style="width:4.2%">STT</th><th style="width:11.5%">Dự án</th><th style="width:10%">Chủ đầu tư</th><th style="width:5.5%">Tiến độ (%)</th>
+        <th>Tình hình thực hiện</th><th style="width:16%">Khó khăn, vướng mắc, kiến nghị</th><th style="width:13%">Kế hoạch tiếp theo</th>
+        <th style="width:8.5%">Giải ngân năm {{ $nam }} (tỷ đồng)</th><th style="width:8.5%">Lũy kế giải ngân (tỷ đồng)</th>
+      </tr>
+    </thead>
+    <tbody>
+    @foreach ($dsBaoCao as $bc)
+      @foreach ($bc->chiTiet as $ct)
+        @php
+          $tong = ['kh' => $cong($tong['kh'], $ct->ke_hoach_von_nam), 'th' => $cong($tong['th'], $ct->giai_ngan_nam),
+                   'tm' => $cong($tong['tm'], $ct->tong_muc_dau_tu), 'lk' => $cong($tong['lk'], $ct->luy_ke_giai_ngan)];
+        @endphp
+        <tr>
+          <td class="giua">{{ ++$stt }}</td>
+          <td><b>{{ $ct->duAn?->ten ?? '(dự án đã xoá)' }}</b></td>
+          <td>{{ $bc->ten_don_vi_hien_thi }}</td>
+          <td class="giua">{{ \App\Models\BaoCaoTuanDuAn::phanTramTienDo($ct->tien_do) }}</td>
+          <td class="chu deu">{{ $ct->cong_viec_dang_lam }}</td>
+          <td class="chu deu">{{ $ct->kho_khan }}</td>
+          <td class="chu deu">{{ $ct->ke_hoach }}</td>
+          <td class="so-gn">@include('bao-cao._o-giai-ngan', ['nhanMau' => 'KH', 'mau' => $ct->ke_hoach_von_nam, 'nhan' => 'TH', 'giaTri' => $ct->giai_ngan_nam])</td>
+          <td class="so-gn">@include('bao-cao._o-giai-ngan', ['nhanMau' => 'TMĐT', 'mau' => $ct->tong_muc_dau_tu, 'nhan' => 'LK', 'giaTri' => $ct->luy_ke_giai_ngan])</td>
+        </tr>
+      @endforeach
+    @endforeach
+    @if ($stt === 0)
+      <tr><td colspan="9" class="trong">Chưa có báo cáo nào được gửi trong tuần này.</td></tr>
+    @elseif ($stt > 1)
+      <tr class="nhom">
+        <td></td><td colspan="6">Tổng cộng</td>
+        <td class="so-gn">@include('bao-cao._o-giai-ngan', ['nhanMau' => 'KH', 'mau' => $tong['kh'], 'nhan' => 'TH', 'giaTri' => $tong['th']])</td>
+        <td class="so-gn">@include('bao-cao._o-giai-ngan', ['nhanMau' => 'TMĐT', 'mau' => $tong['tm'], 'nhan' => 'LK', 'giaTri' => $tong['lk']])</td>
+      </tr>
+    @endif
+    </tbody>
+  </table>
+  <p class="ghi-chu"><i>Ghi chú: KH - kế hoạch vốn năm; TH - giá trị giải ngân trong năm; TMĐT - tổng mức đầu tư; LK - lũy kế giải ngân từ khởi công;
+    tỷ lệ "Đạt" so với KH hoặc TMĐT. Đơn vị: tỷ đồng.</i></p>
+  <style>
+    table.in td.so-gn{white-space:nowrap}
+    table.in td.so-gn div{display:flex;justify-content:space-between;gap:6pt}
+    table.in td.so-gn div.dat{justify-content:flex-end;font-style:italic}
+  </style>
+@endsection

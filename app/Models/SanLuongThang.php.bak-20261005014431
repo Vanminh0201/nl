@@ -1,0 +1,54 @@
+<?php
+
+namespace App\Models;
+
+use App\Support\KyThang;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/** Sản lượng điện 1 tháng của 1 dự án (kWh) — chủ đầu tư báo cáo hoặc Sở nhập thay */
+class SanLuongThang extends Model
+{
+    protected $table = 'san_luong_thang';
+
+    protected $guarded = ['id'];
+
+    protected $casts = [
+        'san_luong' => 'float',
+        'gui_luc' => 'datetime',
+    ];
+
+    public const NGUON = ['chu_dau_tu' => 'Chủ đầu tư báo cáo', 'so' => 'Sở nhập'];
+
+    public function duAn(): BelongsTo
+    {
+        return $this->belongsTo(DuAn::class);
+    }
+
+    public function nguoiCapNhat(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'nguoi_cap_nhat_id');
+    }
+
+    public function scopeTrongKy(Builder $q, KyThang $ky): Builder
+    {
+        return $q->where('nam', $ky->nam)->where('thang', $ky->thang);
+    }
+
+    public function ky(): KyThang
+    {
+        return KyThang::tuSo($this->nam, $this->thang);
+    }
+
+    /** Đã có số liệu chính thức: chủ đầu tư đã gửi hoặc Sở đã nhập (bản nháp của chủ đầu tư chưa tính) */
+    public function daCo(): bool
+    {
+        return $this->gui_luc !== null && $this->san_luong !== null;
+    }
+
+    public function getTenAttribute(): string
+    {
+        return 'Sản lượng tháng '.$this->thang.'/'.$this->nam.' – '.($this->duAn?->ten ?? '#'.$this->du_an_id);
+    }
+}

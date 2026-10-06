@@ -1,0 +1,158 @@
+@extends('layouts.app')
+@section('tieu_de', 'Báo cáo tiến độ')
+
+@php
+  $laChuDauTu = auth()->user()->vai_tro === 'chu_dau_tu';
+@endphp
+
+@section('noi_dung')
+<div class="pad" style="display:flex;flex-direction:column;gap:14px">
+
+  @if ($laChuDauTu)
+    <div class="sheet">
+      <div class="sheet-hd"><h2>Nộp báo cáo tiến độ</h2></div>
+      @if ($dsDuAn->isEmpty())
+        <div class="sheet-bd">
+          <p class="hint">Chưa có dự án nào được gán cho tài khoản của bạn — liên hệ Sở Công Thương để được gán dự án.</p>
+        </div>
+      @else
+        <form method="post" action="{{ route('bao-cao.store') }}" class="sheet-bd" style="display:flex;flex-direction:column;gap:12px">
+          @csrf
+          @if ($errors->any())
+            <div class="loi">{{ $errors->first() }}</div>
+          @endif
+
+          <label class="f full">Dự án
+            <select name="du_an_id" id="baoCaoDuAn" required>
+              @foreach ($dsDuAn as $d)
+                <option value="{{ $d->id }}"
+                        data-tien-do="{{ $d->tien_do }}"
+                        @foreach (array_keys(\App\Models\DuAn::HO_SO_PHAP_LY) as $cot)
+                          data-{{ str_replace('_', '-', $cot) }}="{{ $d->{$cot} ? 1 : 0 }}"
+                        @endforeach
+                        @selected(old('du_an_id') == $d->id)>
+                  {{ $d->ten }}
+                </option>
+              @endforeach
+            </select>
+          </label>
+
+          <label class="f full">Tiến độ hiện tại (%)
+            <input type="number" name="tien_do" id="baoCaoTienDo" min="0" max="100" required value="{{ old('tien_do', $dsDuAn->first()->tien_do) }}">
+          </label>
+
+          <div class="f full">
+            <span style="display:block;margin-bottom:6px">Mốc hồ sơ pháp lý đã hoàn thành</span>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              @foreach (\App\Models\DuAn::HO_SO_PHAP_LY as $cot => $nhan)
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400">
+                  <input type="checkbox" name="{{ $cot }}" id="baoCao-{{ $cot }}" value="1"
+                         @checked(old($cot, $dsDuAn->first()->{$cot}))>
+                  {{ $nhan }}
+                </label>
+              @endforeach
+            </div>
+          </div>
+
+          <label class="f full">Tình hình, khó khăn, kế hoạch tiếp theo
+            <textarea name="noi_dung" rows="5" placeholder="Mô tả tình hình triển khai kỳ này, khó khăn vướng mắc (nếu có), kế hoạch tiếp theo...">{{ old('noi_dung') }}</textarea>
+          </label>
+
+          <div>
+            <button class="btn primary">Nộp báo cáo</button>
+          </div>
+        </form>
+      @endif
+    </div>
+  @endif
+
+  <div class="sheet">
+    <div class="sheet-hd"><h2>{{ $laChuDauTu ? 'Lịch sử báo cáo đã nộp' : 'Báo cáo tiến độ từ chủ đầu tư' }}</h2></div>
+
+    @unless ($laChuDauTu)
+      <form method="get" class="thanhloc" style="padding:0 18px 14px">
+        <label>Dự án
+          <select name="du_an_id">
+            <option value="">Tất cả</option>
+            @foreach ($dsDuAnLoc as $d)
+              <option value="{{ $d->id }}" @selected(request('du_an_id') == $d->id)>{{ $d->ten }}</option>
+            @endforeach
+          </select>
+        </label>
+        <label>Từ ngày
+          <input type="date" name="tu_ngay" value="{{ request('tu_ngay') }}">
+        </label>
+        <label>Đến ngày
+          <input type="date" name="den_ngay" value="{{ request('den_ngay') }}">
+        </label>
+        <button class="btn primary">Lọc</button>
+        <a href="{{ route('bao-cao.index') }}" class="btn">Bỏ lọc</a>
+      </form>
+    @endunless
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            @unless ($laChuDauTu)
+              <th>Dự án</th>
+              <th>Người nộp</th>
+            @endunless
+            <th>Ngày nộp</th>
+            <th class="num">Tiến độ</th>
+            <th>Hồ sơ đã đánh dấu</th>
+            <th>Nội dung</th>
+          </tr>
+        </thead>
+        <tbody>
+        @forelse ($baoCao as $bc)
+          <tr>
+            @unless ($laChuDauTu)
+              <td>{{ $bc->duAn?->ten ?? '(dự án đã xoá)' }}</td>
+              <td>{{ $bc->nguoiBaoCao?->name }}</td>
+            @endunless
+            <td>{{ $bc->created_at->format('d/m/Y H:i') }}</td>
+            <td class="num">{{ $bc->tien_do }}%</td>
+            <td>
+              @php
+                $mocDaDanhDau = collect(\App\Models\DuAn::HO_SO_PHAP_LY)
+                  ->filter(fn ($nhan, $cot) => $bc->{$cot})
+                  ->values();
+              @endphp
+              {{ $mocDaDanhDau->isNotEmpty() ? $mocDaDanhDau->implode(', ') : '—' }}
+            </td>
+            <td style="max-width:340px;white-space:pre-wrap">{{ $bc->noi_dung }}</td>
+          </tr>
+        @empty
+          <tr><td colspan="{{ $laChuDauTu ? 4 : 6 }}" style="padding:26px;color:var(--ink-2)">
+            Chưa có báo cáo nào.
+          </td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:12px 18px">{{ $baoCao->links('vendor.pagination.don-gian', ['donVi' => 'báo cáo']) }}</div>
+  </div>
+</div>
+
+@if ($laChuDauTu && $dsDuAn->count() > 1)
+  @push('cuoi_trang')
+  <script>
+  (function () {
+    var chon = document.getElementById('baoCaoDuAn');
+    var tienDo = document.getElementById('baoCaoTienDo');
+    var mocCot = @json(array_keys(\App\Models\DuAn::HO_SO_PHAP_LY));
+
+    chon.addEventListener('change', function () {
+      var o = chon.options[chon.selectedIndex];
+      tienDo.value = o.dataset.tienDo || 0;
+      mocCot.forEach(function (cot) {
+        var el = document.getElementById('baoCao-' + cot);
+        if (el) el.checked = o.dataset[cot.replace(/_([a-z])/g, function (m, c) { return c.toUpperCase(); })] === '1';
+      });
+    });
+  })();
+  </script>
+  @endpush
+@endif
+@endsection

@@ -1,0 +1,80 @@
+@extends('layouts.app')
+@section('tieu_de', 'Báo cáo sản lượng điện')
+
+@php
+  use App\Support\BaoCaoSanLuong as SL;
+  $kyNay = $hang->first();
+  $trangThai = function (array $h) {
+    if ($h['tra_lai'] > 0) return ['do', 'Sở trả lại '.$h['tra_lai'].' dự án'];
+    if ($h['phai'] && $h['gui'] >= $h['phai']) return $h['tiep_nhan'] >= $h['gui'] ? ['co', 'Sở đã tiếp nhận'] : ['cho', 'Đã gửi, chờ tiếp nhận'];
+    if ($h['gui'] > 0) return ['cho', 'Gửi '.$h['gui'].'/'.$h['phai'].' dự án'];
+    if ($h['nhap'] > 0) return ['cho', 'Đang soạn'];
+    if ($h['truoc_ap_dung']) return ['', 'Chưa áp dụng'];
+    return SL::quaHan($h['ky']) ? ['do', 'Quá hạn, chưa gửi'] : ['', 'Chưa gửi'];
+  };
+  // Nút mở trang nhập: chỉ "Xem" khi mọi dự án đã gửi và không có dòng bị trả lại hoặc đang soạn
+  $nutSoan = function (array $h) {
+    if ($h['tra_lai']) return 'Sửa, gửi lại';
+    if ($h['phai'] && $h['gui'] >= $h['phai'] && ! $h['nhap']) return 'Xem';
+    return $h['gui'] || $h['nhap'] ? 'Xem, sửa' : 'Nhập';
+  };
+@endphp
+
+@section('noi_dung')
+<div class="pad bc-trang">
+  @include('bao-cao._tab', ['dangChon' => 'bao-cao.san-luong.index'])
+  @if ($errors->any())
+    <div class="loi" style="margin:0">{{ $errors->first() }}</div>
+  @endif
+
+  <div class="sheet">
+    <div class="sheet-hd">
+      <h2>Báo cáo sản lượng điện {{ mb_strtolower($kyCanBao->ten()) }}</h2>
+      <div class="hint" style="margin-top:2px">Hạn gửi ngày {{ SL::hanNop($kyCanBao)->format('d/m/Y') }}</div>
+    </div>
+    <div class="sheet-bd" style="display:flex;flex-direction:column;gap:10px">
+      @if ($dsDuAn->isEmpty())
+        <p class="hint" style="margin:0">Tài khoản chưa được gán dự án nguồn điện đã vận hành — liên hệ Sở Công Thương để được gán dự án.</p>
+      @else
+        @php [$lop, $ten] = $trangThai($kyNay); @endphp
+        <div><span class="chip {{ $lop }}">{{ $ten }}</span> @if ($kyNay['gui_luc'])<span class="hint">Gửi lúc {{ $kyNay['gui_luc']->copy()->setTimezone(\App\Support\KyBaoCao::MUI_GIO)->format('d/m/Y H:i') }}</span>@endif</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+          <a href="{{ route('bao-cao.san-luong.soan', ['ky' => $kyCanBao->ma()]) }}" class="btn primary">{{ ['Sửa, gửi lại' => 'Sửa báo cáo bị trả lại', 'Xem' => 'Xem báo cáo tháng này', 'Xem, sửa' => 'Tiếp tục báo cáo tháng này', 'Nhập' => 'Nhập sản lượng tháng này'][$nutSoan($kyNay)] }}</a>
+          <a href="{{ route('bao-cao.san-luong.thong-ke') }}" class="btn">@include('bao-cao._icon', ['ten' => 'bieu-do'])Thống kê sản lượng</a>
+          <form method="get" action="{{ route('bao-cao.san-luong.soan') }}" class="sl-thang-khac">
+            <input type="month" name="ky" max="{{ $kyCanBao->ma() }}" required aria-label="Tháng cần nhập">
+            <button class="btn">Nhập tháng khác</button>
+          </form>
+        </div>
+        <div class="hint" style="margin:0">Dự án báo cáo: {{ $dsDuAn->pluck('ten')->join('; ') }}</div>
+      @endif
+    </div>
+  </div>
+
+  @if ($dsDuAn->isNotEmpty())
+    <div class="sheet">
+      <div class="sheet-hd"><h2>12 tháng gần nhất</h2></div>
+      <div class="tablewrap" style="border:0;border-radius:0">
+        <table class="sl-bang">
+          <thead>
+            <tr><th>Tháng</th><th class="giua">Hạn gửi</th><th class="giua">Dự án đã gửi</th><th class="num">Tổng sản lượng (kWh)</th><th class="giua">Trạng thái</th><th class="giua"></th></tr>
+          </thead>
+          <tbody>
+          @foreach ($hang as $h)
+            @php [$lop, $ten] = $trangThai($h); @endphp
+            <tr>
+              <td><b>{{ $h['ky']->ten() }}</b></td>
+              <td class="giua">{{ $h['han']->format('d/m/Y') }}</td>
+              <td class="giua">{{ $h['gui'] }}/{{ $h['phai'] }}</td>
+              <td class="num">{{ SL::so($h['tong'] ?: null) }}</td>
+              <td class="giua"><span class="chip {{ $lop }}">{{ $ten }}</span></td>
+              <td class="giua"><a href="{{ route('bao-cao.san-luong.soan', ['ky' => $h['ky']->ma()]) }}" class="btn sm">{{ $nutSoan($h) }}</a></td>
+            </tr>
+          @endforeach
+          </tbody>
+        </table>
+      </div>
+    </div>
+  @endif
+</div>
+@endsection

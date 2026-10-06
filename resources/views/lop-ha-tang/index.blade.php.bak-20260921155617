@@ -1,0 +1,93 @@
+@extends('layouts.app')
+@section('tieu_de', 'Lớp hạ tầng lưới điện')
+
+@section('noi_dung')
+<div class="pad cot2">
+  <div class="sheet">
+    <div class="sheet-hd"><h2>Lớp hạ tầng đã nạp</h2></div>
+    <div class="sheet-bd" style="padding:0">
+      <table style="min-width:0">
+        <thead>
+          <tr><th>Tên lớp</th><th>Nguồn</th><th class="num">Đối tượng</th><th class="num">Trạm</th><th>Trạng thái</th><th></th></tr>
+        </thead>
+        <tbody>
+        @forelse ($lop as $l)
+          <tr>
+            <td><b>{{ $l->ten }}</b><br><span class="hint">{{ $l->ten_file }}</span></td>
+            <td>{{ $l->nguon }}</td>
+            <td class="num">{{ number_format($l->doi_tuong_count, 0, ',', '.') }}</td>
+            <td class="num">{{ number_format($l->so_tram, 0, ',', '.') }}</td>
+            <td>{{ $l->hien_thi ? 'Đang bật' : 'Đã tắt' }}</td>
+            <td style="white-space:nowrap">
+              @if (auth()->user()->duocSua())
+                <form method="post" action="{{ route('lop-ha-tang.toggle', $l) }}" style="display:inline">
+                  @csrf @method('patch')
+                  <button class="btn sm">{{ $l->hien_thi ? 'Tắt' : 'Bật' }}</button>
+                </form>
+              @endif
+              @if (auth()->user()->duocXoa())
+                <form method="post" action="{{ route('lop-ha-tang.destroy', $l) }}" style="display:inline"
+                      onsubmit="return confirm('Gỡ lớp {{ $l->ten }} và toàn bộ đối tượng của lớp?')">
+                  @csrf @method('delete')
+                  <button class="btn sm danger">Gỡ</button>
+                </form>
+              @endif
+            </td>
+          </tr>
+        @empty
+          <tr><td colspan="6" style="padding:26px;color:var(--ink-2)">
+            Chưa nạp lớp nào. Cột “Cách trạm” trong danh sách dự án sẽ trống cho tới khi có lớp chứa trạm biến áp.
+          </td></tr>
+        @endforelse
+        </tbody>
+      </table>
+    </div>
+    @if (auth()->user()->duocSua())
+      <div class="sheet-ft">
+        <form method="post" action="{{ route('lop-ha-tang.tinh-lai') }}" style="display:flex;gap:8px;align-items:center">
+          @csrf
+          <select name="kv" class="btn" style="padding:6px 9px">
+            <option value="110" selected>Trạm từ 110 kV</option>
+            <option value="220">Trạm từ 220 kV</option>
+            <option value="0">Mọi cấp điện áp</option>
+          </select>
+          <button class="btn">Tính lại khoảng cách cho toàn bộ dự án</button>
+        </form>
+      </div>
+    @endif
+  </div>
+
+  @if (auth()->user()->duocSua())
+  <form method="post" action="{{ route('lop-ha-tang.store') }}" enctype="multipart/form-data" class="sheet">
+    @csrf
+    <div class="sheet-hd"><h2 style="font-size:14px">Nạp lớp mới</h2></div>
+    <div class="sheet-bd">
+      @if ($errors->any())
+        <div class="loi">{{ $errors->first() }}</div>
+      @endif
+      <div class="grid">
+        <label class="f full">Tên lớp
+          <input name="ten" value="{{ old('ten') }}" placeholder="VD: Lưới điện Quảng Trị" required>
+        </label>
+        <label class="f full">Nguồn dữ liệu
+          <input name="nguon" value="{{ old('nguon') }}" placeholder="VD: OpenInfraMap, trích xuất 09/2026">
+        </label>
+        <label class="f full">File dữ liệu
+          <input type="file" name="tep" accept=".geojson,.json,.kml,.kmz" required>
+        </label>
+      </div>
+      <p class="hint">
+        Nhận GeoJSON, KML và KMZ, tối đa 100 MB. Trạm biến áp được nhận diện theo thẻ
+        <code>power=substation</code> của OpenStreetMap, hoặc theo tên có chứa “trạm biến áp”, “TBA”.
+        Cấp điện áp đọc từ thẻ <code>voltage</code> (đơn vị vôn, tự quy đổi sang kV).
+      </p>
+      <p class="hint">
+        Dữ liệu lưới điện OpenStreetMap đủ ở cấp 220–500 kV, thưa ở 110 kV và lưới trung áp. Dùng để định vị
+        và sàng lọc, không dùng làm số liệu trích dẫn trong văn bản.
+      </p>
+    </div>
+    <div class="sheet-ft"><button class="btn primary">Nạp lớp</button></div>
+  </form>
+  @endif
+</div>
+@endsection

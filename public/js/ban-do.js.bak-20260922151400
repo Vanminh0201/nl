@@ -1,0 +1,294 @@
+/* Bản đồ dự án công nghiệp — dùng Leaflet, không cần bước biên dịch */
+(function () {
+  'use strict';
+
+  var cfg = window.CAU_HINH_BAN_DO || {};
+  var duong = window.DUONG_DAN;
+
+  var map = L.map('map', { preferCanvas: true, zoomControl: false })
+    .setView([cfg.vi_do || 17.3, cfg.kinh_do || 106.75], cfg.muc_phong || 8);
+  L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+  /* ---------- lớp nền (đường phố / vệ tinh / địa hình) ---------- */
+  var lopNenCfg = cfg.lop_nen || {};
+  var lopNenHienTai = null;
+  var loiTile = 0;
+
+  function chonLopNen(ma) {
+    var c = lopNenCfg[ma];
+    if (!c) return;
+
+    if (lopNenHienTai) map.removeLayer(lopNenHienTai);
+    loiTile = 0;
+    canhBao('');
+
+    lopNenHienTai = L.tileLayer(c.tile, { maxZoom: 18, attribution: c.ghi_nguon })
+      .on('tileerror', function () {
+        if (++loiTile > 4) canhBao('Không tải được nền bản đồ. Điểm dự án và lưới điện vẫn hiển thị đúng toạ độ.');
+      })
+      .addTo(map);
+    lopNenHienTai.bringToBack();
+  }
+
+  chonLopNen(document.getElementById('locNen') ? document.getElementById('locNen').value : 'pho');
+
+  var lopHaTang = L.layerGroup().addTo(map);
+  var lopRanhGioi = L.layerGroup().addTo(map);
+  var lopDuAn = L.layerGroup().addTo(map);
+
+  var duAn = [];
+  var dangChon = null;
+  var hen = null;
+
+  function canhBao(text) {
+    var el = document.getElementById('canhBao');
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  function so(n) {
+    return n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+  }
+
+  function thoatHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function thamSoLoc() {
+    return new URLSearchParams({
+      tu_khoa: document.getElementById('tuKhoa').value.trim(),
+      loai_hinh: document.getElementById('locLoaiHinh').value,
+      trang_thai: document.getElementById('locTrangThai').value
+    });
+  }
+
+  function mauDienAp(kv) {
+    if (kv === null || kv === undefined) return '#8a8f94';
+    if (kv >= 500) return '#c0392b';
+    if (kv >= 220) return '#d97b2a';
+    if (kv >= 110) return '#2f6fae';
+    if (kv >= 22) return '#6f8390';
+    return '#8a8f94';
+  }
+
+  /* ---------- dự án ---------- */
+  function taiDuAn() {
+    document.getElementById('dem').textContent = 'Đang tải…';
+
+    fetch(duong.duAn + '?' + thamSoLoc(), { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (gj) {
+        lopDuAn.clearLayers();
+        lopRanhGioi.clearLayers();
+        duAn = [];
+        var daThem = {};
+
+        gj.features.forEach(function (f) {
+          var p = f.properties;
+
+          if (!daThem[p.id]) {
+            daThem[p.id] = true;
+            duAn.push(p);
+          }
+
+          if (p.vai_tro === 'lop') {
+            var lop;
+            if (f.geometry.type === 'MultiPoint') {
+              // Nhiều điểm gộp chung 1 lớp (VD cột/mốc dọc tuyến): vẽ từng điểm riêng để giữ
+              // nhãn/toạ độ chính xác, nhưng cả nhóm vẫn ẩn/hiện cùng nhau vì chung 1 bản ghi.
+              lop = L.featureGroup();
+              f.geometry.coordinates.forEach(function (c, i) {
+                var m = L.marker([c[1], c[0]], { icon: BieuTuongLoaiHinh.divIcon(p.lop_bieu_tuong, p.mau, 22) });
+                var nhan = (p.lop_nhan && p.lop_nhan[i]) || p.lop_ten || p.ten;
+                m.bindTooltip(thoatHtml(nhan), { sticky: true });
+                m.bindPopup(bongChuThich(p));
+                m.on('click', function () { chon(p.id, false); });
+                m.addTo(lop);
+              });
+            } else {
+              lop = L.geoJSON(f, {
+                style: { color: p.mau, weight: p.lop_loai === 'duong' ? 3 : 2, fillOpacity: p.lop_loai === 'vung' ? 0.18 : 0 },
+                pointToLayer: function (feat, ll) {
+                  return L.marker(ll, { icon: BieuTuongLoaiHinh.divIcon(p.lop_bieu_tuong, p.mau, 24) });
+                }
+              });
+              lop.bindTooltip(thoatHtml(p.lop_ten || p.ten), { sticky: true });
+              lop.bindPopup(bongChuThich(p));
+              lop.on('click', function () { chon(p.id, false); });
+            }
+            lop.duAnId = p.id;
+            lop.addTo(lopRanhGioi);
+            return;
+          }
+
+          var m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+            icon: BieuTuongLoaiHinh.divIcon(p.bieu_tuong, p.mau)
+          });
+          m.duAnId = p.id;
+          m.bindTooltip(thoatHtml(p.ten), { direction: 'top', offset: [0, -16] });
+          m.bindPopup(bongChuThich(p));
+          m.on('click', function () { chon(p.id, false); });
+          m.addTo(lopDuAn);
+        });
+
+        veDanhSach();
+      })
+      .catch(function () { document.getElementById('dem').textContent = 'Không tải được dữ liệu dự án.'; });
+  }
+
+  function bongChuThich(p) {
+    var d = ['<b>' + p.ten + '</b>'];
+    if (p.chu_dau_tu) d.push(p.chu_dau_tu);
+    d.push(p.loai_hinh + ' — ' + p.trang_thai);
+    if (p.von) d.push('Vốn: ' + so(p.von) + ' tỷ đồng');
+    d.push('<a href="' + p.url + '">Xem hồ sơ dự án</a>');
+    return d.join('<br>');
+  }
+
+  function veDanhSach() {
+    document.getElementById('dem').textContent = duAn.length + ' dự án có toạ độ';
+    var box = document.getElementById('danhSach');
+
+    if (!duAn.length) {
+      box.innerHTML = '<div class="trong">Không có dự án nào khớp điều kiện lọc, hoặc các dự án khớp chưa được gắn toạ độ.</div>';
+      return;
+    }
+
+    box.innerHTML = duAn.map(function (p) {
+      return '<div class="muc' + (p.id === dangChon ? ' chon' : '') + '" data-id="' + p.id + '" style="--c:' + p.mau + '">'
+        + '<div class="vach"></div><div>'
+        + '<h3>' + p.ten + '</h3>'
+        + '<p>' + (p.chu_dau_tu || 'Chưa rõ chủ đầu tư') + '</p>'
+        + '<div class="meta"><span>' + p.loai_hinh + '</span>'
+        + (p.dia_diem ? '<span>' + p.dia_diem + '</span>' : '')
+        + '</div></div></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(box.querySelectorAll('.muc'), function (el) {
+      el.onclick = function () { chon(Number(el.dataset.id), true); };
+    });
+  }
+
+  function chon(id, bay) {
+    dangChon = id;
+    veDanhSach();
+
+    var timDuoc = false;
+    lopDuAn.eachLayer(function (l) {
+      if (l.duAnId !== id) return;
+      timDuoc = true;
+      l.openPopup();
+      if (bay) map.setView(l.getLatLng(), Math.max(map.getZoom(), 13));
+    });
+    if (timDuoc) return;
+
+    // Dự án không có chấm điểm riêng (đã có lớp đường/vùng thay thế): mở bằng lớp đó
+    var lopKhop = [];
+    lopRanhGioi.eachLayer(function (l) { if (l.duAnId === id) lopKhop.push(l); });
+    if (!lopKhop.length) return;
+
+    // Lớp nhóm điểm (MultiPoint) không tự có popup riêng, mở bằng lớp đầu tiên có popup thật
+    var coPopup = lopKhop.find(function (l) { return typeof l.getPopup === 'function' && l.getPopup(); }) || lopKhop[0];
+    if (typeof coPopup.openPopup === 'function') coPopup.openPopup();
+    if (bay) {
+      var gioiHan = lopKhop[0].getBounds();
+      lopKhop.slice(1).forEach(function (l) { gioiHan.extend(l.getBounds()); });
+      map.fitBounds(gioiHan, { padding: [30, 30] });
+    }
+  }
+
+  /* ---------- lưới điện ---------- */
+  function taiHaTang() {
+    lopHaTang.clearLayers();
+    canhBao('');
+
+    if (map.getZoom() < 7) return;
+
+    var b = map.getBounds();
+    var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(function (v) { return v.toFixed(5); }).join(',');
+
+    fetch(duong.haTang + '?bbox=' + bbox, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (gj) {
+        L.geoJSON(gj, {
+          // Màu/kích thước riêng đặt trên lớp (lop_ha_tang) ghi đè mặc định theo cấp điện áp
+          // khi có — để trống thì giữ nguyên quy ước tô theo kV như trước giờ.
+          style: function (f) {
+            var kv = f.properties.kv, c = f.properties.mau || mauDienAp(kv);
+            var w = f.properties.kich_thuoc || (kv >= 220 ? 2.4 : 1.6);
+            return { color: c, weight: w, opacity: 0.8, fillColor: c, fillOpacity: 0.22 };
+          },
+          pointToLayer: function (f, ll) {
+            var mau = f.properties.mau || mauDienAp(f.properties.kv);
+            if (f.properties.bieu_tuong) {
+              return L.marker(ll, { icon: BieuTuongLoaiHinh.divIcon(f.properties.bieu_tuong, mau, f.properties.kich_thuoc || 22) });
+            }
+            return L.circleMarker(ll, {
+              radius: f.properties.kich_thuoc || (f.properties.loai === 'tram' ? 5 : 3.5),
+              color: '#fff', weight: 1,
+              fillColor: mau, fillOpacity: 0.95
+            });
+          },
+          onEachFeature: function (f, layer) {
+            var p = f.properties, d = [];
+            if (p.ten) d.push('<b>' + p.ten + '</b>');
+            if (p.kv) d.push(p.kv + ' kV');
+            if (d.length) layer.bindPopup(d.join('<br>'));
+          }
+        }).addTo(lopHaTang);
+
+        if (gj.bi_cat) canhBao('Khung nhìn có quá nhiều đối tượng nên chỉ hiển thị phần cấp điện áp cao nhất. Phóng to để xem đầy đủ.');
+      })
+      .catch(function () { canhBao('Không tải được lớp lưới điện.'); });
+  }
+
+  /* ---------- sự kiện ---------- */
+  function hoan(fn, ms) {
+    clearTimeout(hen);
+    hen = setTimeout(fn, ms);
+  }
+
+  document.getElementById('tuKhoa').addEventListener('input', function () { hoan(taiDuAn, 350); });
+  document.getElementById('locLoaiHinh').addEventListener('change', taiDuAn);
+  document.getElementById('locTrangThai').addEventListener('change', taiDuAn);
+  map.on('moveend zoomend', function () { hoan(taiHaTang, 300); });
+
+  var locNenEl = document.getElementById('locNen');
+  if (locNenEl) locNenEl.addEventListener('change', function () { chonLopNen(this.value); });
+
+  /* ---------- thu gọn / mở khung danh sách và chú giải ---------- */
+  var aside = document.getElementById('asideBanDo');
+  var moAside = document.getElementById('moAside');
+  document.getElementById('dongAside').addEventListener('click', function () {
+    aside.classList.add('thu-gon');
+    moAside.classList.add('hien');
+    setTimeout(function () { map.invalidateSize(); }, 200);
+  });
+  moAside.addEventListener('click', function () {
+    aside.classList.remove('thu-gon');
+    moAside.classList.remove('hien');
+    setTimeout(function () { map.invalidateSize(); }, 200);
+  });
+
+  var legend = document.getElementById('legendBanDo');
+  var moLegend = document.getElementById('moLegend');
+  document.getElementById('dongLegend').addEventListener('click', function () {
+    legend.classList.add('thu-gon');
+    moLegend.classList.add('hien');
+  });
+  moLegend.addEventListener('click', function () {
+    legend.classList.remove('thu-gon');
+    moLegend.classList.remove('hien');
+  });
+
+  /* chú giải loại hình dùng chung huy hiệu với điểm trên bản đồ */
+  Array.prototype.forEach.call(document.querySelectorAll('#chuGiaiLoaiHinh .chugiai-hang'), function (el) {
+    var o = el.querySelector('.chugiai-icon');
+    if (o) o.outerHTML = BieuTuongLoaiHinh.badgeHtml(el.dataset.bieuTuong, el.dataset.mau, 18);
+  });
+
+  taiDuAn();
+  taiHaTang();
+})();

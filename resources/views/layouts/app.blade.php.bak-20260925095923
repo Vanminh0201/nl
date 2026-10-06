@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>@yield('tieu_de', 'Quản lý dự án công nghiệp')</title>
+<link rel="stylesheet" href="{{ asset('css/app.css') }}?v={{ filemtime(public_path('css/app.css')) }}">
+@stack('dau_trang')
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="brand">Quản lý dự án công nghiệp</span>
+    <span class="org">Phòng Quản lý Công nghiệp — Sở Công Thương Quảng Trị</span>
+    <span class="spacer"></span>
+    <nav>
+      <a href="{{ route('ban-do') }}" class="{{ request()->routeIs('ban-do') ? 'on' : '' }}">Bản đồ</a>
+      <a href="{{ route('du-an.index') }}" class="{{ request()->routeIs('du-an.*') ? 'on' : '' }}">Danh sách</a>
+      @unless (auth()->user()->vai_tro === 'chu_dau_tu')
+        <a href="{{ route('thong-ke') }}" class="{{ request()->routeIs('thong-ke') ? 'on' : '' }}">Thống kê</a>
+        <a href="{{ route('lop-ha-tang.index') }}" class="{{ request()->routeIs('lop-ha-tang.*') ? 'on' : '' }}">Lớp hạ tầng</a>
+      @endunless
+      @if (auth()->user()->vai_tro === 'quan_tri')
+        <a href="{{ route('danh-muc.index') }}" class="{{ request()->routeIs('danh-muc.*') ? 'on' : '' }}">Danh mục</a>
+      @endif
+    </nav>
+    @stack('thanh_menu')
+    <span class="me">{{ auth()->user()->name }} <small>({{ auth()->user()->ten_vai_tro }})</small></span>
+    <form method="post" action="{{ route('dang-xuat') }}">
+      @csrf
+      <button class="btn ghost">Thoát</button>
+    </form>
+  </header>
+
+  @if (session('thong_bao'))
+    <div class="flash">{{ session('thong_bao') }}</div>
+  @endif
+
+  <main>
+    @yield('noi_dung')
+  </main>
+</div>
+@stack('cuoi_trang')
+</body>
+</html>

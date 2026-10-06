@@ -1,0 +1,143 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class BaoCaoTuanDuAn extends Model
+{
+    protected $table = 'bao_cao_tuan_du_an';
+
+    protected $guarded = ['id'];
+
+    protected $casts = [
+        'tien_do' => 'integer',
+        'tong_muc_dau_tu' => 'float',
+        'ke_hoach_von_nam' => 'float',
+        'giai_ngan_nam' => 'float',
+        'luy_ke_giai_ngan' => 'float',
+        'pl_chu_truong' => 'boolean',
+        'pl_dat_dai' => 'boolean',
+        'pl_moi_truong' => 'boolean',
+        'pl_pccc' => 'boolean',
+        'pl_xay_dung' => 'boolean',
+    ];
+
+    /** Các mục chữ, theo thứ tự trong mẫu báo cáo tuần */
+    public const TRUONG_CHU = [
+        'thu_tuc_da_xong' => 'Các thủ tục, hồ sơ đã hoàn thành',
+        'cong_viec_dang_lam' => 'Các nội dung công việc đang thực hiện',
+        'kho_khan' => 'Khó khăn, vướng mắc và kiến nghị',
+        'ke_hoach' => 'Kế hoạch tiếp theo, tiến độ dự kiến',
+    ];
+
+    /** Số liệu giải ngân, đơn vị tỷ đồng */
+    public const TRUONG_SO = [
+        'tong_muc_dau_tu' => 'Tổng mức đầu tư',
+        'ke_hoach_von_nam' => 'Kế hoạch vốn năm',
+        'giai_ngan_nam' => 'Giải ngân trong năm',
+        'luy_ke_giai_ngan' => 'Lũy kế giải ngân từ khởi công',
+    ];
+
+    public function baoCao(): BelongsTo
+    {
+        return $this->belongsTo(BaoCaoTuan::class, 'bao_cao_tuan_id');
+    }
+
+    /** Quyền xem đã kiểm tra ở cấp báo cáo — bỏ lọc theo chủ đầu tư để dự án đã chuyển cho
+     *  tài khoản khác (hoặc đã xoá) vẫn hiện đúng tên trong các báo cáo cũ. */
+    public function duAn(): BelongsTo
+    {
+        return $this->belongsTo(DuAn::class, 'du_an_id')->withoutGlobalScope('chu_dau_tu')->withTrashed();
+    }
+
+    /** Nội dung theo đúng thứ tự mục của mẫu — dùng chung cho trang xem và file Word. */
+    public function cacMuc(int $nam): array
+    {
+        $muc1 = self::tachDong($this->thu_tuc_da_xong);
+
+        $muc2 = self::tachDong($this->cong_viec_dang_lam);
+        if ($this->tien_do !== null) {
+            $muc2[] = "- Tiến độ tổng thể dự án đạt {$this->tien_do}%.";
+        }
+
+        return [
+            ['tieu_de' => '1. '.self::TRUONG_CHU['thu_tuc_da_xong'].':', 'dong' => $muc1 ?: ['Chưa cập nhật.']],
+            ['tieu_de' => '2. '.self::TRUONG_CHU['cong_viec_dang_lam'].':', 'dong' => $muc2 ?: ['Chưa cập nhật.']],
+            ['tieu_de' => '3. '.self::TRUONG_CHU['kho_khan'].':', 'dong' => self::tachDong($this->kho_khan) ?: ['Không có.']],
+            ['tieu_de' => '4. '.self::TRUONG_CHU['ke_hoach'].':', 'dong' => self::tachDong($this->ke_hoach) ?: ['Chưa cập nhật.']],
+            ['tieu_de' => '5. Công tác giải ngân:', 'dong' => $this->dongGiaiNgan($nam)],
+        ];
+    }
+
+    public function dongGiaiNgan(int $nam): array
+    {
+        $dong = [];
+        if ($this->giai_ngan_nam !== null) {
+            $dong[] = $this->ke_hoach_von_nam
+                ? "Giá trị giải ngân năm {$nam} là ".self::so($this->giai_ngan_nam).'/'.self::so($this->ke_hoach_von_nam)
+                    .' tỷ đồng, tương đương '.self::phanTram($this->giai_ngan_nam, $this->ke_hoach_von_nam).'% kế hoạch năm.'
+                : "Giá trị giải ngân năm {$nam} là ".self::so($this->giai_ngan_nam).' tỷ đồng.';
+        }
+        if ($this->luy_ke_giai_ngan !== null) {
+            $dong[] = $this->tong_muc_dau_tu
+                ? 'Lũy kế giá trị giải ngân từ khởi công là '.self::so($this->luy_ke_giai_ngan).'/'.self::so($this->tong_muc_dau_tu)
+                    .' tỷ đồng, tương đương '.self::phanTram($this->luy_ke_giai_ngan, $this->tong_muc_dau_tu).'% so với tổng mức đầu tư.'
+                : 'Lũy kế giá trị giải ngân từ khởi công là '.self::so($this->luy_ke_giai_ngan).' tỷ đồng.';
+        }
+
+        return $dong ?: ['Chưa có số liệu.'];
+    }
+
+    /** "TÌNH HÌNH TRIỂN KHAI DỰ ÁN …" — nhiều tên dự án đã bắt đầu bằng "Dự án" thì không lặp lại. */
+    public function tieuDeMuc(): string
+    {
+        $ten = trim($this->duAn?->ten ?? '(dự án đã xoá)');
+
+        return 'TÌNH HÌNH TRIỂN KHAI '.mb_strtoupper(preg_match('/^dự án\b/iu', $ten) ? $ten : 'Dự án '.$ten);
+    }
+
+    /** Dòng giới thiệu ngắn về dự án, lấy từ dữ liệu dự án (không phải do chủ đầu tư nhập). */
+    public function thongTinDuAn(): ?string
+    {
+        $d = $this->duAn;
+        if (! $d) {
+            return null;
+        }
+        $phan = array_filter([
+            $d->dia_diem ? 'Địa điểm: '.$d->dia_diem : null,
+            'Loại hình: '.$d->ten_loai_hinh,
+            $d->cong_suat ? 'Quy mô, công suất: '.$d->cong_suat : null,
+            $this->tong_muc_dau_tu ? 'Tổng mức đầu tư: '.self::so($this->tong_muc_dau_tu).' tỷ đồng' : null,
+            $d->trang_thai ? 'Giai đoạn: '.$d->trang_thai : null,
+        ]);
+
+        return '- '.implode('; ', $phan).'.';
+    }
+
+    public static function tachDong(?string $chu): array
+    {
+        return collect(preg_split('/\r\n|\r|\n/', (string) $chu))
+            ->map(fn ($d) => trim($d))
+            ->filter(fn ($d) => $d !== '')
+            ->values()
+            ->all();
+    }
+
+    /** Định dạng số kiểu Việt Nam (1.234,5), bỏ số 0 thừa ở phần thập phân. */
+    public static function so(?float $v, int $le = 3): string
+    {
+        if ($v === null) {
+            return '';
+        }
+        $s = number_format($v, $le, ',', '.');
+
+        return $le > 0 ? rtrim(rtrim($s, '0'), ',') : $s;
+    }
+
+    public static function phanTram(?float $tu, ?float $mau): ?string
+    {
+        return ($tu !== null && $mau) ? self::so($tu / $mau * 100, 2) : null;
+    }
+}

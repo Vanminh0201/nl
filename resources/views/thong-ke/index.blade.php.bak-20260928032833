@@ -1,0 +1,85 @@
+@extends('layouts.app')
+@section('tieu_de', 'Thống kê dự án công nghiệp')
+
+@php
+  $thanh = function ($ds, $khoa, $donVi = '') {
+    $max = collect($ds)->max($khoa) ?: 1;
+    $ra = '';
+    foreach ($ds as $r) {
+      $mau = $r['mau'] ?? '#1f4b6e';
+      $ra .= '<div class="brow" style="--c:'.$mau.'">'
+        .'<div class="lbl"><i style="width:8px;height:8px;border-radius:50%;background:'.$mau.';display:inline-block;flex:0 0 8px"></i>'
+        .'<span title="'.e($r['nhan']).'">'.e($r['nhan']).'</span></div>'
+        .'<div class="val">'.number_format($r[$khoa], 0, ',', '.').$donVi.'</div>'
+        .'<div class="track"><i style="width:'.round($r[$khoa] / $max * 100, 1).'%"></i></div>'
+        .'</div>';
+    }
+    return $ra ?: '<p class="hint" style="margin:0">Chưa có dữ liệu.</p>';
+  };
+@endphp
+
+@section('noi_dung')
+<div class="pad">
+  <form method="get" class="thanhloc">
+    <label class="grow">Từ khoá
+      <input type="search" name="tu_khoa" value="{{ request('tu_khoa') }}">
+    </label>
+    <label>Loại hình
+      <select name="loai_hinh">
+        <option value="">Tất cả</option>
+        @foreach ($dsLoaiHinh as $ma => $l)
+          <option value="{{ $ma }}" @selected(request('loai_hinh') === $ma)>{{ $l->ten }}</option>
+        @endforeach
+      </select>
+    </label>
+    <label>Trạng thái
+      <select name="trang_thai">
+        <option value="">Tất cả</option>
+        @foreach ($dsTrangThai as $ten => $t)
+          <option value="{{ $ten }}" @selected(request('trang_thai') === $ten)>{{ $ten }}</option>
+        @endforeach
+      </select>
+    </label>
+    <button class="btn primary">Lọc</button>
+    <a href="{{ route('thong-ke') }}" class="btn">Bỏ lọc</a>
+    <a href="{{ route('xuat.csv', request()->query()) }}" class="btn">Xuất Excel</a>
+  </form>
+
+  <div class="kpis">
+    <div class="kpi"><b>{{ number_format($tong->so_du_an, 0, ',', '.') }}</b><span>dự án trong danh mục</span></div>
+    <div class="kpi"><b>{{ number_format($tong->tong_von, 0, ',', '.') }}</b><span>tỷ đồng vốn đăng ký</span></div>
+    <div class="kpi"><b>{{ number_format($tong->tong_cong_suat, 0, ',', '.') }}</b><span>MW tổng công suất</span></div>
+    <div class="kpi"><b>{{ number_format($tong->tong_dien_tich, 0, ',', '.') }}</b><span>ha diện tích</span></div>
+    <div class="kpi"><b>{{ $tong->dang_hoat_dong }}</b><span>dự án đã hoạt động</span></div>
+    <div class="kpi"><b>{{ $tong->cham_tien_do }}</b><span>chậm tiến độ hoặc tạm dừng</span></div>
+    <div class="kpi"><b>{{ $tong->thieu_toa_do }}</b><span>chưa gắn toạ độ</span></div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h3>Số dự án theo loại hình</h3>
+      {!! $thanh($theoLoaiHinh->all(), 'so_luong') !!}
+    </div>
+    <div class="panel">
+      <h3>Công suất theo loại hình (MW)</h3>
+      {!! $thanh($theoLoaiHinhCongSuat->all(), 'cong_suat', ' MW') !!}
+    </div>
+    <div class="panel">
+      <h3>Số dự án theo trạng thái</h3>
+      {!! $thanh($theoTrangThai->all(), 'so_luong') !!}
+    </div>
+    <div class="panel">
+      <h3>Số dự án theo địa bàn</h3>
+      {!! $thanh($theoDiaBan->all(), 'so_luong') !!}
+    </div>
+    <div class="panel">
+      <h3>Vốn đăng ký theo loại hình (tỷ đồng)</h3>
+      {!! $thanh($theoLoaiHinh->filter(fn ($r) => $r['von'] > 0)->values()->all(), 'von') !!}
+    </div>
+    <div class="panel">
+      <h3>Số dự án còn thiếu từng loại hồ sơ</h3>
+      {!! $thanh($hoSoThieu->all(), 'so_luong') !!}
+    </div>
+  </div>
+</div>
+@endsection

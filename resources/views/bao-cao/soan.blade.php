@@ -180,7 +180,7 @@
             <span class="bcs-so-la-ma">{{ \App\Models\BaoCaoTuan::soLaMa($i + 1) }}</span>
             <span class="bcs-the-ten">
               <h2>{{ $d->ten }}</h2>
-              <span class="bcs-the-meta">{{ $d->ten_loai_hinh }}@if ($d->trang_thai) · {{ $d->trang_thai }}@endif @if ($d->dia_diem) · {{ $d->dia_diem }}@endif</span>
+              <span class="bcs-the-meta">{{ $d->ten_loai_hinh }}@if ($d->trang_thai) · {{ $d->trang_thai }}@endif @if ($d->dia_diem) · Hiện nay: {{ $d->dia_diem }}@endif @if ($d->diaDiemTruocDayDanhSach()) · Trước đây: {{ implode(', ', $d->diaDiemTruocDayDanhSach()) }}@endif</span>
             </span>
             <span class="bcs-the-chip" data-chip></span>
             <label class="bcs-chon"><input type="checkbox" name="{{ $ten }}[co]" value="1" @checked($co) data-chon-muc> Đưa vào báo cáo</label>

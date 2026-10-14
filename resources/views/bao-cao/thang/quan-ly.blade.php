@@ -2,10 +2,7 @@
 @section('tieu_de', 'Quản lý báo cáo tháng')
 
 @php
-  $laQuanTri = auth()->user()->vai_tro === 'quan_tri';
   $coTheXuLy = in_array(auth()->user()->vai_tro, ['quan_tri', 'nhap_lieu']);
-  // Bảng mẫu trên trang chỉ giữ các cột ngắn; pháp lý, tình hình, phương án xem ở thẻ từng dự án (file Excel vẫn đủ cột)
-  $anCot = ['phap_ly', 'tinh_hinh', 'phuong_an'];
 @endphp
 
 @section('noi_dung')
@@ -45,7 +42,8 @@
     @endunless
     <span class="bc-ky-gian"></span>
     <a href="{{ route('bao-cao.thang.tong-hop-in', ['ky' => $ky->ma()]) }}" class="btn bc-nut" target="_blank" rel="noopener">@include('bao-cao._icon', ['ten' => 'in'])In bảng tổng hợp</a>
-    <a href="{{ route('bao-cao.thang.tong-hop-excel', ['ky' => $ky->ma()]) }}" class="btn primary bc-nut">@include('bao-cao._icon', ['ten' => 'tai'])Tải bảng tổng hợp (Excel theo mẫu)</a>
+    <a href="{{ route('bao-cao.thang.tong-hop-excel', ['ky' => $ky->ma()]) }}" class="btn bc-nut">@include('bao-cao._icon', ['ten' => 'tai'])Tải Excel</a>
+    <a href="{{ route('bao-cao.thang.tong-hop-word', ['ky' => $ky->ma()]) }}" class="btn primary bc-nut">@include('bao-cao._icon', ['ten' => 'tai'])Tải Word theo mẫu</a>
   </div>
 
   <div class="bc-kpi">
@@ -170,93 +168,62 @@
   <div class="sheet" id="tong-hop">
     <div class="sheet-hd bc-phan-hd">
       <div class="bc-phan-giua">
-      <h2>Tổng hợp theo mẫu — {{ mb_strtolower($ky->ten()) }}</h2>
-      </div>
-    </div>
-    <div class="sheet-bd">
-      @if ($laQuanTri && $cauTruc)
-        <form method="post" action="{{ route('bao-cao.thang.phan-nhom') }}">
-          @csrf
-          <input type="hidden" name="ky" value="{{ $ky->ma() }}">
-          @include('bao-cao.thang._bang', ['cauTruc' => $cauTruc, 'phanNhom' => true, 'lienKet' => true, 'ghiChu' => $ghiChu, 'anCot' => $anCot])
-          <div class="bct-luu">
-            <button type="submit" name="tu_dong" value="1" class="btn" formnovalidate
-                    onclick="return confirm('Bỏ các ghi chú đã sửa tay và tạo lại ghi chú tự động theo năm dự kiến COD?')">Tạo lại ghi chú tự động</button>
-            <button class="btn primary">Lưu phân nhóm và ghi chú</button>
-          </div>
-        </form>
-      @else
-        @include('bao-cao.thang._bang', ['cauTruc' => $cauTruc, 'lienKet' => true, 'ghiChu' => $ghiChu, 'anCot' => $anCot])
-      @endif
-    </div>
-  </div>
-
-  @php
-    // Thẻ từng dự án theo đúng thứ tự trong bảng mẫu (loại hình → nhóm → tên dự án)
-    $dsThe = collect($cauTruc)->flatMap(fn ($sh) => collect($sh['nhom'])->flatMap(fn ($n) => $n['muc']))->values();
-  @endphp
-  @if ($dsThe->isNotEmpty())
-    <div class="sheet">
-      <div class="sheet-hd bc-phan-hd">
-        <div class="bc-phan-giua">
-          <h2>Tình hình triển khai, khó khăn vướng mắc của từng dự án — {{ mb_strtolower($ky->ten()) }}</h2>
+        <h2>Tình hình triển khai các dự án năng lượng — {{ mb_strtolower($ky->ten()) }}</h2>
+        <div class="hint">
+          {{ $bang['so_du_an'] }} dự án, nhóm theo xã/phường hiện nay (dự án trên nhiều xã ghi lại ở mỗi xã). Nội dung mỗi dự án lấy theo thứ tự:
+          Sở biên tập tháng này → báo cáo chủ đầu tư gửi tháng này → nội dung gần nhất các tháng trước.
         </div>
       </div>
-      <div class="bc-the-ds">
-        @foreach ($dsThe as $i => $m)
-          @php
-            $b = $m->baoCao;
-            $mw = $m->congSuatMw();
-            $cs = trim((string) $m->cong_suat);
-            $codCtdt = \App\Services\XuatExcelBaoCaoThang::giaTri($m, 'tien_do_cod', $i + 1);
-          @endphp
-          <article class="bc-the" id="bct-da-{{ $i + 1 }}">
-            <header class="bc-the-dau">
-              <span class="bc-the-so">{{ $i + 1 }}</span>
-              <div style="min-width:0">
-                <a href="{{ route('bao-cao.thang.show', $b) }}" class="bc-the-ten">{{ $m->duAn?->ten ?? '(dự án đã xoá)' }}</a>
-                <div class="bc-the-phu">
-                  <span>{{ $b->ten_don_vi_hien_thi }}</span><span>·</span><span>Gửi lúc {{ $b->gio('nop_luc') }}</span>
-                  <span class="chip {{ $b->lop_chip }}">{{ $b->ten_trang_thai }}</span>
-                </div>
-              </div>
-              <div class="bc-the-chiso">
-                <div class="cs-tien-do"><span>Công suất</span><b>{{ $mw > 0 ? \App\Models\BaoCaoTuanDuAn::so($mw, 1) : ($cs !== '' ? $cs : '—') }}</b><small>{{ $mw > 0 ? 'MW' : '' }}</small></div>
-              </div>
-            </header>
-            <div class="bct-the-tt">
-              <div><span>Địa điểm xây dựng</span><p>{{ trim((string) $m->dia_diem) ?: '—' }}</p></div>
-              <div><span>Tiến độ vận hành COD theo chủ trương đầu tư</span><p>{{ $codCtdt ?: '—' }}</p></div>
-              <div><span>Tiến độ dự kiến đưa vào vận hành thực tế</span><p>{{ trim((string) $m->tien_do_thuc_te) ?: '—' }}</p></div>
-            </div>
-            <div class="bc-the-than">
-              @if (trim((string) $m->phap_ly) !== '')
-                <section class="bc-the-muc">
-                  <h4>Tình trạng pháp lý dự án</h4>
-                  <div class="bc-van">@include('bao-cao._doan-van', ['chu' => $m->phap_ly])</div>
-                </section>
-              @endif
-              <section class="bc-the-muc">
-                <h4>Tình hình triển khai thực hiện, khó khăn vướng mắc</h4>
-                <div class="bc-van">@include('bao-cao._doan-van', ['chu' => $m->tinh_hinh])</div>
-              </section>
-              @if (trim((string) $m->phuong_an) !== '')
-                <section class="bc-the-muc kho-khan">
-                  <h4>Phương án xử lý, đề xuất kiến nghị</h4>
-                  <div class="bc-van">@include('bao-cao._doan-van', ['chu' => $m->phuong_an])</div>
-                </section>
-              @endif
-              @if (trim((string) $m->ghi_chu) !== '')
-                <section class="bc-the-muc">
-                  <h4>Ghi chú</h4>
-                  <div class="bc-van">@include('bao-cao._doan-van', ['chu' => $m->ghi_chu])</div>
-                </section>
-              @endif
-            </div>
-          </article>
-        @endforeach
-      </div>
     </div>
+    <div class="bct-loc">
+      <input type="search" placeholder="Tìm dự án, chủ đầu tư…" aria-label="Tìm dự án hoặc chủ đầu tư" data-th-tim>
+      <label><input type="checkbox" data-th-an-trong> Ẩn dự án chưa có nội dung</label>
+      <span class="hint" data-th-dem></span>
+    </div>
+    @include('bao-cao.thang._bang', ['bang' => $bang, 'ky' => $ky, 'hienNguon' => true, 'coTheSua' => $coTheSua])
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-hd bc-phan-hd">
+      <div class="bc-phan-giua"><h2>Thống kê các dự án năng lượng trên địa bàn các xã</h2></div>
+    </div>
+    <div class="sheet-bd bct-thong-ke-khung">@include('bao-cao.thang._thong-ke-tong-quan', ['bang' => $bang])</div>
+  </div>
+
+  @if ($coTheSua)
+    @php
+      // Nội dung hiện tại của từng dự án, để mở hộp biên tập điền sẵn
+      $noiDungSua = collect($bang['xa'])->flatMap(fn ($xa) => collect($xa['nhom'])->flatMap(fn ($n) => $n['muc']))
+        ->unique(fn ($m) => $m['du_an']->id)
+        ->mapWithKeys(fn ($m) => [$m['du_an']->id => ['ten' => $m['ten'], 'so' => $m['nguon'] === 'so' && $m['ky_nguon']->bang($ky)] + $m['noi_dung']]);
+    @endphp
+    <dialog id="thSua" class="th-sua" aria-labelledby="thSuaTen">
+      <form method="post" data-url="{{ route('bao-cao.thang.tong-hop-luu', ['duAn' => '__ID__']) }}">
+        @csrf
+        <input type="hidden" name="ky" value="{{ $ky->ma() }}">
+        <div class="th-sua-dau">
+          <div>
+            <span class="th-sua-nhan">Biên tập nội dung · {{ mb_strtolower($ky->ten()) }}</span>
+            <h3 id="thSuaTen"></h3>
+          </div>
+          <button type="button" class="btn" data-dong-sua>Đóng</button>
+        </div>
+        <div class="th-sua-than">
+          @foreach (\App\Models\BaoCaoThangDuAn::NOI_DUNG_MAU as $cot => $nhan)
+            <label class="f {{ in_array($cot, ['du_kien_khoi_cong', 'du_kien_hoan_thanh'], true) ? 'th-sua-ngan' : '' }}">{{ $nhan }}
+              <textarea name="{{ $cot }}" rows="{{ $cot === 'tinh_hinh' ? 6 : (in_array($cot, ['du_kien_khoi_cong', 'du_kien_hoan_thanh'], true) ? 2 : 4) }}" maxlength="10000"></textarea>
+            </label>
+          @endforeach
+          <p class="hint" style="margin:0">Nội dung lưu ở đây dùng cho bảng tổng hợp {{ mb_strtolower($ky->ten()) }} và các tháng sau (cho tới khi có báo cáo mới của chủ đầu tư).
+            Xoá trắng cả 6 ô rồi lưu để bỏ phần Sở biên tập, dùng lại nội dung chủ đầu tư báo cáo.</p>
+        </div>
+        <div class="th-sua-chan">
+          <button type="button" class="btn" data-dong-sua>Huỷ</button>
+          <button class="btn primary">Lưu nội dung</button>
+        </div>
+      </form>
+    </dialog>
+    <script type="application/json" id="thNoiDung">@json($noiDungSua)</script>
   @endif
 
   <div class="sheet">
@@ -352,6 +319,53 @@
       h.type = 'hidden'; h.name = 'bao_cao_ids[]'; h.value = c.value;
       form.appendChild(h);
     });
+  });
+})();
+
+// Bảng tổng hợp theo xã: tìm dự án / chủ đầu tư (gõ không dấu được), ẩn dự án chưa có nội dung; dòng tiêu đề xã và
+// tình trạng không còn dự án nào hiện thì ẩn theo
+(function () {
+  var bang = document.querySelector('#tong-hop .bct-xa');
+  if (!bang) return;
+  var oTim = document.querySelector('[data-th-tim]'), oAn = document.querySelector('[data-th-an-trong]'), oDem = document.querySelector('[data-th-dem]');
+  var boDau = function (s) { return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd'); };
+  var dsHang = Array.prototype.slice.call(bang.tBodies[0].rows);
+  dsHang.forEach(function (tr) { if (tr.dataset.tim !== undefined) tr.dataset.timBoDau = boDau(tr.dataset.tim); });
+  function apDung() {
+    var tu = boDau(oTim.value.trim()), an = oAn.checked, hien = 0;
+    dsHang.forEach(function (tr) {
+      if (tr.dataset.duAn === undefined) return;
+      tr.hidden = (tu && tr.dataset.timBoDau.indexOf(tu) < 0) || (an && tr.dataset.coNoiDung === '0');
+      if (!tr.hidden) hien++;
+    });
+    // Duyệt ngược: tiêu đề tình trạng / xã chỉ hiện khi bên dưới (tới tiêu đề kế tiếp cùng cấp) còn dự án hiện
+    var conTT = false, conXa = false;
+    for (var i = dsHang.length - 1; i >= 0; i--) {
+      var tr = dsHang[i];
+      if (tr.dataset.duAn !== undefined) { if (!tr.hidden) { conTT = true; conXa = true; } }
+      else if (tr.dataset.tinhTrang !== undefined) { tr.hidden = !conTT; conTT = false; }
+      else if (tr.dataset.xa !== undefined) { tr.hidden = !conXa; conXa = false; }
+    }
+    oDem.textContent = (tu || an) ? 'Đang hiện ' + hien + ' dòng' : '';
+  }
+  oTim.addEventListener('input', apDung);
+  oAn.addEventListener('change', apDung);
+
+  var hop = document.getElementById('thSua'), duLieu = document.getElementById('thNoiDung');
+  if (!hop || !duLieu || !hop.showModal) return;
+  var noiDung = JSON.parse(duLieu.textContent), formSua = hop.querySelector('form');
+  document.addEventListener('click', function (e) {
+    var nut = e.target.closest('[data-sua-th]');
+    if (nut) {
+      var id = nut.dataset.suaTh, nd = noiDung[id] || {};
+      formSua.action = formSua.dataset.url.replace('__ID__', id);
+      hop.querySelector('#thSuaTen').textContent = nd.ten || '';
+      Array.prototype.forEach.call(formSua.querySelectorAll('textarea'), function (t) { t.value = nd[t.name] || ''; });
+      hop.showModal();
+      formSua.querySelector('textarea[name="tinh_hinh"]').focus();
+    } else if (e.target.closest('[data-dong-sua]')) {
+      hop.close();
+    }
   });
 })();
 </script>

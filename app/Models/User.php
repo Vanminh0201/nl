@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\BaoCaoSanLuong;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -10,7 +11,7 @@ class User extends Authenticatable
 {
     use HasFactory, Notifiable;
 
-    protected $fillable = ['name', 'email', 'password', 'vai_tro', 'don_vi', 'da_duyet', 'quyen_xem', 'bc_tuan', 'bc_thang', 'bc_san_luong'];
+    protected $fillable = ['name', 'email', 'password', 'vai_tro', 'don_vi', 'da_duyet', 'du_an_cho_duyet', 'quyen_xem', 'bc_tuan', 'bc_thang', 'bc_san_luong'];
 
     protected $hidden = ['password', 'remember_token'];
 
@@ -20,6 +21,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'da_duyet' => 'boolean',
+            'du_an_cho_duyet' => 'array',
             'quyen_xem' => 'array',
             'bc_tuan' => 'boolean',
             'bc_thang' => 'boolean',
@@ -152,7 +154,7 @@ class User extends Authenticatable
     /** Dự án nguồn điện đã vận hành được gán cho tài khoản — phải báo cáo sản lượng điện hằng tháng */
     public function duAnVanHanh()
     {
-        return \App\Support\BaoCaoSanLuong::duAnDangVanHanh($this->duAn()->getQuery());
+        return BaoCaoSanLuong::duAnDangVanHanh($this->duAn()->getQuery());
     }
 
     public function phaiBaoCaoSanLuong(): bool

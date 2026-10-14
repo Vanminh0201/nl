@@ -54,11 +54,15 @@
           <span class="ico">⚙</span> Cài đặt
         </button>
         <div class="muc-luc-bang" id="caiDatBanDoBang" hidden>
-          <select id="locNen" class="btn" style="padding:6px 9px">
-            @foreach (config('duan.ban_do.lop_nen') as $ma => $l)
-              <option value="{{ $ma }}" @selected($ma === 've_tinh')>{{ $l['ten'] }}</option>
-            @endforeach
-          </select>
+          @if (auth()->user()->vai_tro === 'quan_tri')
+            <select id="locNen" class="btn" style="padding:6px 9px">
+              @foreach (config('duan.ban_do.lop_nen') as $ma => $l)
+                <option value="{{ $ma }}" @selected($ma === 've_tinh')>{{ $l['ten'] }}</option>
+              @endforeach
+            </select>
+          @else
+            <span class="btn" aria-label="Nền bản đồ">Vệ tinh</span>
+          @endif
           <select id="locThoiDiemAnh" class="btn" style="padding:6px 9px" hidden aria-label="Thời điểm ảnh vệ tinh"></select>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="locHienTenDuAn" title="Cụm dự án sát nhau chỉ hiện bớt tên cho khỏi đè chữ — phóng to để thấy đủ"> Hiện tên dự án
@@ -115,6 +119,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 window.CAU_HINH_BAN_DO = @json(config('duan.ban_do'));
+window.CHI_DUOC_NEN_VE_TINH = @json(auth()->user()->vai_tro !== 'quan_tri');
 window.DUONG_DAN = {
   duAn: @json(route('api.du-an')),
   chiTietDuAn: @json(route('api.du-an.chi-tiet', ['duAn' => '__ID__'])),

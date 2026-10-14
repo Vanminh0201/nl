@@ -19,6 +19,8 @@ class DuAn extends Model
         'ngay_khoi_cong' => 'date',
         'ngay_hoan_thanh' => 'date',
         'ngay_van_ban' => 'date',
+        'dia_diem_hien_nay' => 'array',
+        'dia_diem_truoc_day' => 'array',
         'pl_chu_truong' => 'boolean',
         'pl_dat_dai' => 'boolean',
         'pl_moi_truong' => 'boolean',
@@ -135,7 +137,12 @@ class DuAn extends Model
      *  ở danh sách, tránh phải tải cả danh sách vanBan() chỉ để lấy 1 dòng đại diện. */
     public function vanBanChinh()
     {
-        return $this->hasOne(DuAnVanBan::class)->ofMany(['ngay_van_ban' => 'max', 'id' => 'max'], fn ($q) => $q->where('ho_so', 'pl_chu_truong'));
+        return $this->hasOne(DuAnVanBan::class)
+            ->where('ho_so', 'pl_chu_truong')
+            ->orderByRaw('CASE WHEN ngay_van_ban IS NULL THEN 1 ELSE 0 END')
+            ->orderByDesc('ngay_van_ban')
+            ->orderByDesc('id')
+            ->limit(1);
     }
 
     /** Số/ngày văn bản trên chính dự án = văn bản chủ trương mới nhất; hồ sơ nào có văn bản thì tích "đã có" */
@@ -195,6 +202,36 @@ class DuAn extends Model
             ->count();
     }
 
+    /** Danh sách địa bàn đã chọn, tương thích với bản ghi cũ chỉ có dia_diem. */
+    public function diaDiemHienNayDanhSach(): array
+    {
+        $diaDiems = $this->dia_diem_hien_nay;
+        if (is_array($diaDiems) && $diaDiems !== []) {
+            return array_values($diaDiems);
+        }
+
+        $diaDiemCu = $this->getRawOriginal('dia_diem');
+
+        return filled($diaDiemCu) ? [$diaDiemCu] : [];
+    }
+
+    public function getDiaDiemAttribute(mixed $value): ?string
+    {
+        $diaDiems = $this->dia_diem_hien_nay;
+
+        return is_array($diaDiems)
+            ? ($diaDiems === [] ? null : implode(', ', $diaDiems))
+            : $value;
+    }
+
+    /** Danh sách địa bàn theo địa giới Quảng Bình và Quảng Trị trước sáp nhập. */
+    public function diaDiemTruocDayDanhSach(): array
+    {
+        $diaDiems = $this->dia_diem_truoc_day;
+
+        return is_array($diaDiems) ? array_values($diaDiems) : [];
+    }
+
     public function scopeLoc(Builder $q, array $dk): Builder
     {
         // Tham số lọc lấy từ URL: chỉ nhận giá trị chữ/số — đường dẫn gõ tay kiểu ?tu_khoa[]=… thì bỏ qua
@@ -206,12 +243,18 @@ class DuAn extends Model
                     $q->where('ten', 'like', "%{$tk}%")
                         ->orWhere('chu_dau_tu', 'like', "%{$tk}%")
                         ->orWhere('dia_diem', 'like', "%{$tk}%")
+                        ->orWhere('dia_diem_hien_nay', 'like', "%{$tk}%")
+                        ->orWhere('dia_diem_truoc_day', 'like', "%{$tk}%")
                         ->orWhere('cong_suat', 'like', "%{$tk}%");
                 });
             })
             ->when($dk['loai_hinh'] ?? null, fn (Builder $q, $v) => $q->where('loai_hinh', $v))
             ->when($dk['trang_thai'] ?? null, fn (Builder $q, $v) => $q->where('trang_thai', $v))
-            ->when($dk['dia_diem'] ?? null, fn (Builder $q, $v) => $q->where('dia_diem', $v))
+            ->when($dk['dia_diem'] ?? null, fn (Builder $q, $v) => $q->where(function (Builder $q) use ($v) {
+                $q->whereJsonContains('dia_diem_hien_nay', $v)
+                    ->orWhere('dia_diem', $v);
+            }))
+            ->when($dk['dia_diem_truoc_day'] ?? null, fn (Builder $q, $v) => $q->whereJsonContains('dia_diem_truoc_day', $v))
             // Khác với trang_thai (chỉ giữ giai đoạn MỚI NHẤT, dự án tiến xa hơn sẽ không còn
             // hiện dưới nhãn "Đã chấp thuận..." nữa) — cờ hồ sơ pháp lý giữ nguyên vĩnh viễn một
             // khi đã có, nên đây mới là cách lọc đúng "dự án đã có chủ trương đầu tư" bất kể đang

@@ -5,7 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** 1 dòng (1 dự án) trong báo cáo tháng — các cột theo đúng mẫu bảng của Sở. */
+/**
+ * 1 dòng (1 dự án) trong báo cáo tháng — các cột theo mẫu "Tình hình triển khai các dự án năng lượng trên địa bàn
+ * tỉnh". Báo cáo gửi trước khi đổi mẫu chỉ có cột cũ (pháp lý, tiến độ COD, phương án…): noiDungMau() quy đổi sang mẫu mới.
+ */
 class BaoCaoThangDuAn extends Model
 {
     protected $table = 'bao_cao_thang_du_an';
@@ -16,18 +19,21 @@ class BaoCaoThangDuAn extends Model
         'cod_nam' => 'integer',
     ];
 
-    /** Các ô chữ, theo thứ tự cột của mẫu */
+    /** 6 cột nội dung của mẫu (sau cột "Thông tin dự án"), theo thứ tự cột */
+    public const NOI_DUNG_MAU = [
+        'du_kien_khoi_cong' => 'Dự kiến khởi công',
+        'du_kien_hoan_thanh' => 'Dự kiến hoàn thành',
+        'tinh_hinh' => 'Tình hình thực hiện',
+        'kho_khan' => 'Khó khăn vướng mắc',
+        'kien_nghi_xa' => 'Kiến nghị xử lý — Xã/phường',
+        'kien_nghi_so' => 'Kiến nghị xử lý — Sở, ngành',
+    ];
+
+    /** Các ô chủ đầu tư nhập cho mỗi dự án */
     public const TRUONG_CHU = [
-        'dia_diem' => 'Địa điểm xây dựng',
         'cong_suat' => 'Công suất (MW)',
         'chu_dau_tu' => 'Chủ đầu tư',
-        'phap_ly' => 'Tình trạng pháp lý dự án',
-        'tien_do_cod' => 'Tiến độ vận hành COD theo chủ trương đầu tư',
-        'tien_do_thuc_te' => 'Tiến độ dự kiến đưa vào vận hành thực tế',
-        'tinh_hinh' => 'Tình hình triển khai thực hiện, khó khăn vướng mắc',
-        'phuong_an' => 'Phương án xử lý, đề xuất kiến nghị',
-        'ghi_chu' => 'Ghi chú',
-    ];
+    ] + self::NOI_DUNG_MAU;
 
     public const KY_COD = [
         'T1' => 'Tháng 1', 'T2' => 'Tháng 2', 'T3' => 'Tháng 3', 'T4' => 'Tháng 4', 'T5' => 'Tháng 5', 'T6' => 'Tháng 6',
@@ -56,30 +62,26 @@ class BaoCaoThangDuAn extends Model
         return $ky ? (str_starts_with($this->cod_ky, 'T') ? mb_strtolower($ky) : $ky).'/'.$this->cod_nam : 'năm '.$this->cod_nam;
     }
 
-    /** Số MW đọc từ ô công suất ("48", "28,6", "1.403", "2x900MVA…" → 0 vì không phải MW) để cộng tổng */
-    public function congSuatMw(): float
+    /**
+     * 6 cột nội dung theo mẫu. Dòng của báo cáo gửi theo mẫu cũ: "Phương án xử lý" sang "Kiến nghị — Sở, ngành",
+     * mốc COD / tiến độ COD sang "Dự kiến hoàn thành" (ô "Tình hình" cũ đã gồm cả khó khăn vướng mắc).
+     *
+     * @return array<string, ?string>
+     */
+    public function noiDungMau(): array
     {
-        $s = trim((string) $this->cong_suat);
-        if ($s === '' || preg_match('/MVA|km/i', $s)) {
-            return 0.0;
-        }
-        if (! preg_match('/\d[\d.,]*/', $s, $m)) {
-            return 0.0;
-        }
+        $gt = collect(self::NOI_DUNG_MAU)->mapWithKeys(fn ($nhan, $cot) => [$cot => self::chu($this->{$cot})])->all();
+        $gt['du_kien_hoan_thanh'] ??= self::chu($this->codHienThi() ? 'Dự kiến COD: '.$this->codHienThi() : $this->tien_do_cod);
+        $gt['kien_nghi_so'] ??= self::chu($this->phuong_an);
 
-        return (float) BaoCaoTuanDuAn::chuanHoaSoThapPhan($m[0]);
+        return $gt;
     }
 
-    /** Nhóm mặc định theo trạng thái dự án khi Sở chưa phân nhóm */
-    public static function nhomTheoTrangThai(?string $trangThai): string
+    /** Chuỗi đã cắt khoảng trắng, rỗng thì null */
+    public static function chu(mixed $s): ?string
     {
-        return config('duan.bao_cao_thang.nhom_theo_trang_thai')[$trangThai] ?? 'chuan_bi';
-    }
+        $s = trim((string) $s);
 
-    public function maNhom(): string
-    {
-        $ds = config('duan.bao_cao_thang.nhom');
-
-        return isset($ds[$this->nhom]) ? $this->nhom : self::nhomTheoTrangThai($this->duAn?->trang_thai);
+        return $s === '' ? null : $s;
     }
 }

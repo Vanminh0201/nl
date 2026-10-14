@@ -9,14 +9,14 @@
   $tomTatVanBan = collect([$vb('ten_don_vi'), $vb('nguoi_lap') ? 'Người lập: '.$vb('nguoi_lap') : null, $vb('dien_thoai')])
     ->filter()->implode(' · ');
   $goiY = [
-    'phap_ly' => "VD:\n- Quyết định chấp thuận chủ trương đầu tư số …/QĐ-UBND ngày …\n- Quyết định chấp thuận nhà đầu tư số …/QĐ-UBND ngày …",
-    'tien_do_cod' => "VD:\n- Duyệt FS: tháng …/…\n- Khởi công: …\n- Hoàn thành toàn dự án, vận hành COD: tháng …/…",
-    'tien_do_thuc_te' => 'VD: Vận hành thương mại tổ máy 1: tháng …/…; tổ máy 2: tháng …/…',
-    'tinh_hinh' => "VD:\n- Đã thi công hoàn thành …; đang triển khai …\n- Khó khăn, vướng mắc: công tác GPMB còn … hộ chưa thống nhất …",
-    'phuong_an' => 'VD: Kính đề nghị UBND tỉnh chỉ đạo … hỗ trợ …',
-    'ghi_chu' => '',
+    'du_kien_khoi_cong' => 'VD: Tháng 12/2026 — hoặc "Đã khởi công ngày 19/12/2025"',
+    'du_kien_hoan_thanh' => 'VD: Tháng 6/2027 — hoặc "Năm đóng điện thương mại 2021"',
+    'tinh_hinh' => "VD:\n- Tình trạng hồ sơ: đã chấp thuận chủ trương đầu tư, đang …\n- Phần nhà máy: đã thi công hoàn thành …/… trụ tuabin, đang …\n- Phần đường dây đấu nối: …",
+    'kho_khan' => 'VD: Hành lang tuyến đường dây còn 01 hộ chưa phối hợp kiểm đếm; thi công gián đoạn do mưa…',
+    'kien_nghi_xa' => 'VD: Đề nghị UBND xã … hỗ trợ bàn giao mặt bằng hành lang tuyến trước ngày …',
+    'kien_nghi_so' => 'VD: Đề nghị Sở Nông nghiệp và Môi trường hướng dẫn, hỗ trợ xã xử lý GPMB…',
   ];
-  $namHienTai = (int) now()->format('Y');
+  $tenNgan = ['du_kien_khoi_cong', 'du_kien_hoan_thanh'];
 @endphp
 
 @section('noi_dung')
@@ -130,17 +130,9 @@
           $d = $m['du_an'];
           $gt = $m['gt'];
           $tr = $m['truoc'];
-          $sh = $m['sheet'];
           $ten = "du_an[{$d->id}]";
           $khoa = "du_an.{$d->id}";
           $co = $coDuLieuCu ? (bool) old("$khoa.co") : $m['co'];
-          $truongChu = ['phap_ly', 'tien_do_cod'];
-          if (! empty($sh['thuc_te'])) $truongChu[] = 'tien_do_thuc_te';
-          $truongChu[] = 'tinh_hinh';
-          if ($sh['phuong_an'] ?? true) $truongChu[] = 'phuong_an';
-          $truongChu[] = 'ghi_chu';
-          $codNam = old("$khoa.cod_nam", $gt['cod_nam']);
-          $codKy = old("$khoa.cod_ky", $gt['cod_ky']);
         @endphp
         <section class="bcs-the bcs-du-an {{ $co ? '' : 'tat' }}" id="du-an-{{ $d->id }}" data-phan="{{ $d->id }}" data-muc>
           <header class="bcs-the-dau">
@@ -156,50 +148,24 @@
 
           <div class="bcs-the-than">
             <div class="bcs-thong-tin">
-              @foreach (['dia_diem' => 'Địa điểm xây dựng', 'cong_suat' => 'Công suất (MW)', 'chu_dau_tu' => 'Chủ đầu tư'] as $cot => $nhan)
+              @foreach (['chu_dau_tu' => 'Chủ đầu tư', 'cong_suat' => 'Công suất (MW)'] as $cot => $nhan)
                 <div class="bcs-o bcs-o-nho" data-o>
                   <div class="bcs-o-dau"><label for="o-{{ $d->id }}-{{ $cot }}">{{ $nhan }}</label><span class="bcs-nhan" data-nhan></span></div>
                   <input id="o-{{ $d->id }}-{{ $cot }}" name="{{ $ten }}[{{ $cot }}]" maxlength="{{ $cot === 'cong_suat' ? 255 : 1000 }}"
-                         value="{{ old("$khoa.$cot", $gt[$cot]) }}" @if ($cot === 'cong_suat') placeholder="VD: 48 hoặc 2x900MVA; 5km" @endif>
+                         value="{{ old("$khoa.$cot", $gt[$cot]) }}" @if ($cot === 'cong_suat') placeholder="VD: 48" @endif>
                   @error("$khoa.$cot")<span class="sai">{{ $message }}</span>@enderror
                 </div>
               @endforeach
             </div>
 
-            @foreach ($truongChu as $cot)
-              @php $batBuoc = $cot === 'tinh_hinh'; @endphp
-              <div class="bcs-o" data-o data-so-sanh data-truoc="{{ $tr[$cot] ?? '' }}" @if ($batBuoc) data-bat-buoc @endif>
-                <div class="bcs-o-dau">
-                  <label for="o-{{ $d->id }}-{{ $cot }}">{{ \App\Models\BaoCaoThangDuAn::TRUONG_CHU[$cot] }}@if ($batBuoc) <span class="bb">*</span>@endif</label>
-                  <span class="bcs-nhan" data-nhan></span>
-                </div>
-                <textarea id="o-{{ $d->id }}-{{ $cot }}" name="{{ $ten }}[{{ $cot }}]" rows="{{ $cot === 'tinh_hinh' ? 5 : 3 }}" data-tu-gian
-                          placeholder="{{ $goiY[$cot] }}">{{ old("$khoa.$cot", $gt[$cot]) }}</textarea>
-                @error("$khoa.$cot")<span class="sai">{{ $message }}</span>@enderror
-                @if (! empty($tr[$cot]))
-                  <details class="bcs-truoc">
-                    <summary>Xem nội dung {{ mb_strtolower($tr['ky']) }}</summary>
-                    <div class="bcs-truoc-noi-dung">{{ $tr[$cot] }}</div>
-                  </details>
-                @endif
-
-                @if ($cot === 'tien_do_cod')
-                  {{-- Mốc COD có cấu trúc để Sở tự tổng hợp "Năm 2027: dự kiến có … dự án vận hành thương mại" --}}
-                  <div class="bcs-cod">
-                    <span>Dự kiến vận hành thương mại (COD):</span>
-                    <select name="{{ $ten }}[cod_ky]" aria-label="Tháng/quý dự kiến COD">
-                      <option value="">— Tháng/quý —</option>
-                      @foreach (\App\Models\BaoCaoThangDuAn::KY_COD as $ma => $nhanKy)
-                        <option value="{{ $ma }}" @selected($codKy === $ma)>{{ $nhanKy }}</option>
-                      @endforeach
-                    </select>
-                    <span>năm</span>
-                    <input type="number" name="{{ $ten }}[cod_nam]" value="{{ $codNam }}" min="2000" max="2100" step="1"
-                           placeholder="{{ $namHienTai + 1 }}" aria-label="Năm dự kiến COD" style="width:92px">
-                    @error("$khoa.cod_nam")<span class="sai">{{ $message }}</span>@enderror
-                  </div>
-                @endif
-              </div>
+            @php $dsO = collect(\App\Models\BaoCaoThangDuAn::NOI_DUNG_MAU); @endphp
+            <div class="bcs-luoi-moc">
+              @foreach ($dsO->only($tenNgan) as $cot => $nhan)
+                @include('bao-cao.thang._o-soan', ['cot' => $cot, 'nhan' => $nhan, 'soDong' => 2])
+              @endforeach
+            </div>
+            @foreach ($dsO->except($tenNgan) as $cot => $nhan)
+              @include('bao-cao.thang._o-soan', ['cot' => $cot, 'nhan' => $nhan, 'soDong' => $cot === 'tinh_hinh' ? 6 : 3])
             @endforeach
           </div>
         </section>

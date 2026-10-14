@@ -3,6 +3,8 @@
 namespace App\Http\Requests;
 
 use App\Models\DuAn;
+use App\Support\DiaDiemQuangTri;
+use App\Support\DiaDiemQuangTriTruocSapNhap;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -43,7 +45,10 @@ class LuuDuAnRequest extends FormRequest
             'chu_dau_tu' => ['nullable', 'string', 'max:255'],
             'chu_dau_tu_id' => ['nullable', Rule::exists('users', 'id')->where('vai_tro', 'chu_dau_tu')],
             'loai_hinh' => ['required', Rule::exists('loai_hinh_du_an', 'ma')],
-            'dia_diem' => ['nullable', 'string', 'max:255'],
+            'dia_diem_hien_nay' => ['nullable', 'array', 'max:100'],
+            'dia_diem_hien_nay.*' => ['required', 'string', 'max:255', 'distinct', Rule::in($this->diaDiemDuocChapNhan())],
+            'dia_diem_truoc_day' => ['nullable', 'array', 'max:300'],
+            'dia_diem_truoc_day.*' => ['required', 'string', 'max:255', 'distinct', Rule::in($this->diaDiemTruocDayDuocChapNhan())],
             'trang_thai' => ['required', Rule::exists('trang_thai_du_an', 'ten')],
 
             'von_dang_ky' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
@@ -124,6 +129,10 @@ class LuuDuAnRequest extends FormRequest
             'vi_do' => 'vĩ độ',
             'kinh_do' => 'kinh độ',
             'ngay_hoan_thanh' => 'ngày hoàn thành',
+            'dia_diem_hien_nay' => 'danh sách xã/phường hiện nay',
+            'dia_diem_hien_nay.*' => 'xã/phường hiện nay',
+            'dia_diem_truoc_day' => 'danh sách địa điểm trước đây',
+            'dia_diem_truoc_day.*' => 'địa điểm trước đây',
         ];
     }
 
@@ -133,6 +142,8 @@ class LuuDuAnRequest extends FormRequest
             'hinh_hoc.array' => 'Dữ liệu lớp bản đồ gửi lên bị hỏng — tải lại trang rồi thử lại.',
             'vi_do.required_with' => 'Toạ độ phải nhập đủ cả vĩ độ và kinh độ.',
             'kinh_do.required_with' => 'Toạ độ phải nhập đủ cả vĩ độ và kinh độ.',
+            'dia_diem_hien_nay.*.in' => 'Hãy chỉ chọn xã/phường trong danh sách đơn vị hành chính mới của tỉnh Quảng Trị.',
+            'dia_diem_truoc_day.*.in' => 'Hãy chỉ chọn xã/phường thuộc Quảng Bình hoặc Quảng Trị trước sáp nhập.',
             'tien_do.decimal' => 'Tiến độ chỉ ghi tối đa 2 chữ số thập phân.',
             'van_ban.*.ho_so.required' => 'Chọn hồ sơ cho từng văn bản.',
             'van_ban.*.tep.max' => 'Mỗi tệp văn bản tối đa 50 MB.',
@@ -146,6 +157,12 @@ class LuuDuAnRequest extends FormRequest
         $data = $this->validated();
         unset($data['hinh_hoc'], $data['van_ban']);
 
+        $diaDiems = array_values(array_unique($data['dia_diem_hien_nay'] ?? []));
+        $diaDiemTruocDay = array_values(array_unique($data['dia_diem_truoc_day'] ?? []));
+        $data['dia_diem_hien_nay'] = $diaDiems;
+        $data['dia_diem'] = $diaDiems[0] ?? null;
+        $data['dia_diem_truoc_day'] = $diaDiemTruocDay;
+
         foreach (array_keys(DuAn::HO_SO_PHAP_LY) as $k) {
             $data[$k] = $this->boolean($k);
         }
@@ -153,6 +170,38 @@ class LuuDuAnRequest extends FormRequest
         $data['nguoi_cap_nhat_id'] = $this->user()->id;
 
         return $data;
+    }
+
+    private function diaDiemDuocChapNhan(): array
+    {
+        $diaDiem = DiaDiemQuangTri::DANH_SACH;
+        $duAnHienTai = $this->route('duAn');
+
+        if ($duAnHienTai instanceof DuAn) {
+            foreach ($duAnHienTai->diaDiemHienNayDanhSach() as $diaDiemCu) {
+                if (! in_array($diaDiemCu, $diaDiem, true)) {
+                    $diaDiem[] = $diaDiemCu;
+                }
+            }
+        }
+
+        return $diaDiem;
+    }
+
+    private function diaDiemTruocDayDuocChapNhan(): array
+    {
+        $diaDiem = DiaDiemQuangTriTruocSapNhap::danhSach();
+        $duAnHienTai = $this->route('duAn');
+
+        if ($duAnHienTai instanceof DuAn) {
+            foreach ($duAnHienTai->diaDiemTruocDayDanhSach() as $diaDiemCu) {
+                if (! in_array($diaDiemCu, $diaDiem, true)) {
+                    $diaDiem[] = $diaDiemCu;
+                }
+            }
+        }
+
+        return $diaDiem;
     }
 
     /**

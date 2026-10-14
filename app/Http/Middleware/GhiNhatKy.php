@@ -8,6 +8,9 @@ use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
+use Illuminate\Support\MessageBag;
+use Illuminate\Support\ViewErrorBag;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -30,7 +33,7 @@ class GhiNhatKy
         'doi-tuong-ha-tang.vi-tri' => 'Kéo sửa vị trí điểm lưới điện', 'doi-tuong-ha-tang.hinh-hoc' => 'Sửa hình dạng tuyến lưới điện',
         'bao-cao.luu' => 'Lưu, gửi báo cáo tuần', 'bao-cao.xu-ly' => 'Xử lý báo cáo tuần', 'bao-cao.xu-ly-hang-loat' => 'Xử lý hàng loạt báo cáo tuần',
         'bao-cao.thang.luu' => 'Lưu, gửi báo cáo tháng', 'bao-cao.thang.xu-ly' => 'Xử lý báo cáo tháng',
-        'bao-cao.thang.xu-ly-hang-loat' => 'Xử lý hàng loạt báo cáo tháng', 'bao-cao.thang.phan-nhom' => 'Phân nhóm báo cáo tháng',
+        'bao-cao.thang.xu-ly-hang-loat' => 'Xử lý hàng loạt báo cáo tháng', 'bao-cao.thang.tong-hop-luu' => 'Biên tập bảng tổng hợp báo cáo tháng',
         'bao-cao.cai-dat.luu' => 'Lưu cài đặt báo cáo', 'bao-cao.san-luong.luu' => 'Lưu, gửi báo cáo sản lượng điện',
         'danh-muc.loai-hinh.store' => 'Thêm loại hình dự án', 'danh-muc.loai-hinh.update' => 'Sửa loại hình dự án', 'danh-muc.loai-hinh.destroy' => 'Xoá loại hình dự án',
         'danh-muc.trang-thai.store' => 'Thêm trạng thái dự án', 'danh-muc.trang-thai.update' => 'Sửa trạng thái dự án', 'danh-muc.trang-thai.destroy' => 'Xoá trạng thái dự án',
@@ -43,6 +46,7 @@ class GhiNhatKy
         'ho-so-tep.show' => 'Mở văn bản hồ sơ pháp lý', 'van-ban.tep' => 'Mở văn bản hồ sơ pháp lý', 'bao-cao.word' => 'Tải báo cáo tuần (Word)',
         'bao-cao.tong-hop-word' => 'Tải tổng hợp báo cáo tuần (Word)', 'bao-cao.tong-hop-in' => 'In tổng hợp báo cáo tuần',
         'bao-cao.thang.excel' => 'Tải báo cáo tháng (Excel)', 'bao-cao.thang.tong-hop-excel' => 'Tải tổng hợp báo cáo tháng (Excel)',
+        'bao-cao.thang.tong-hop-word' => 'Tải tổng hợp báo cáo tháng (Word)',
         'bao-cao.thang.tong-hop-in' => 'In tổng hợp báo cáo tháng', 'bao-cao.san-luong.excel' => 'Tải thống kê sản lượng điện (Excel)',
         // xem trang
         'ban-do' => 'Xem bản đồ', 'du-an.index' => 'Xem danh sách dự án', 'du-an.show' => 'Xem chi tiết dự án',
@@ -57,7 +61,8 @@ class GhiNhatKy
     ];
 
     private const TAI_XUAT = ['xuat.csv', 'xuat.excel', 'xuat.geojson', 'ho-so-tep.show', 'van-ban.tep', 'bao-cao.word', 'bao-cao.tong-hop-word',
-        'bao-cao.tong-hop-in', 'bao-cao.thang.excel', 'bao-cao.thang.tong-hop-excel', 'bao-cao.thang.tong-hop-in', 'bao-cao.san-luong.excel'];
+        'bao-cao.tong-hop-in', 'bao-cao.thang.excel', 'bao-cao.thang.tong-hop-excel', 'bao-cao.thang.tong-hop-word', 'bao-cao.thang.tong-hop-in',
+        'bao-cao.san-luong.excel'];
 
     /** Ghi qua sự kiện xác thực, không ghi lại ở đây */
     private const BO_QUA = ['dang-nhap', 'dang-xuat'];
@@ -66,9 +71,7 @@ class GhiNhatKy
     private const AN_DU_LIEU = ['_token', '_method', 'password', 'password_confirmation', 'mat_khau', 'mat_khau_moi', 'mat_khau_cu',
         'current_password', 'hinh_hoc_json'];
 
-    public function __construct(private NhatKyHoatDong $nhatKy)
-    {
-    }
+    public function __construct(private NhatKyHoatDong $nhatKy) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -134,7 +137,13 @@ class GhiNhatKy
         }
         $loi = null;
         if ($request->hasSession() && $request->session()->has('errors')) {
-            $loi = $request->session()->get('errors')->first();
+            $errors = $request->session()->get('errors');
+            if ($errors instanceof ViewErrorBag || $errors instanceof MessageBag) {
+                $loi = $errors->first();
+            } elseif (is_array($errors)) {
+                $messages = Arr::flatten($errors);
+                $loi = $messages[0] ?? null;
+            }
         } elseif ($response->getStatusCode() >= 400) {
             $loi = 'Mã phản hồi '.$response->getStatusCode();
         }

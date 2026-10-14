@@ -16,7 +16,8 @@ class XuatDuLieuController extends Controller
         ['ten' => 'Tên dự án', 'rong' => 26, 'kieu' => 'o_dam'],
         ['ten' => 'Chủ đầu tư', 'rong' => 22, 'kieu' => 'o'],
         ['ten' => 'Loại hình', 'rong' => 14, 'kieu' => 'o'],
-        ['ten' => 'Địa điểm', 'rong' => 18, 'kieu' => 'o'],
+        ['ten' => 'Địa điểm trước đây', 'rong' => 34, 'kieu' => 'o'],
+        ['ten' => 'Địa điểm hiện nay', 'rong' => 30, 'kieu' => 'o'],
         ['ten' => 'Trạng thái', 'rong' => 18, 'kieu' => 'o'],
         ['ten' => 'Vốn đăng ký (tỷ đồng)', 'rong' => 12, 'kieu' => 'o_giua'],
         ['ten' => 'Diện tích (ha)', 'rong' => 10, 'kieu' => 'o_giua'],
@@ -45,7 +46,8 @@ class XuatDuLieuController extends Controller
         $x = fn ($b) => $b ? 'x' : '';
 
         return [
-            $stt, $d->ten, $d->chu_dau_tu, $d->ten_loai_hinh, $d->dia_diem, $d->trang_thai,
+            $stt, $d->ten, $d->chu_dau_tu, $d->ten_loai_hinh,
+            implode(', ', $d->diaDiemTruocDayDanhSach()), $d->dia_diem, $d->trang_thai,
             $d->von_dang_ky, $d->dien_tich, $d->cong_suat, $d->tien_do,
             $d->ngay_khoi_cong?->format('d/m/Y'), $d->ngay_hoan_thanh?->format('d/m/Y'),
             $d->so_van_ban, $d->ngay_van_ban?->format('d/m/Y'),
@@ -63,7 +65,7 @@ class XuatDuLieuController extends Controller
      */
     public function excel(Request $request, TaoTepExcel $excel): BinaryFileResponse
     {
-        $dk = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'pl_chu_truong', 'ho_so']);
+        $dk = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'dia_diem_truoc_day', 'pl_chu_truong', 'ho_so']);
 
         $sheet = $excel->themSheet('Danh mục dự án', array_column(self::COT, 'rong'), 1);
         $excel->dong($sheet, 1, array_column(self::COT, 'ten'), 'dau_cot');
@@ -91,7 +93,7 @@ class XuatDuLieuController extends Controller
      */
     public function csv(Request $request): StreamedResponse
     {
-        $dk = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'pl_chu_truong', 'ho_so']);
+        $dk = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'dia_diem_truoc_day', 'pl_chu_truong', 'ho_so']);
         $ten = 'danh-muc-du-an-cong-nghiep-'.now()->format('Ymd').'.csv';
 
         return response()->streamDownload(function () use ($dk) {
@@ -114,7 +116,7 @@ class XuatDuLieuController extends Controller
     public function geojson(Request $request)
     {
         $features = DuAn::query()
-            ->loc($request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'pl_chu_truong', 'ho_so']))
+            ->loc($request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'dia_diem_truoc_day', 'pl_chu_truong', 'ho_so']))
             ->whereNotNull('vi_do')
             ->get()
             ->map(fn (DuAn $d) => [
@@ -124,6 +126,7 @@ class XuatDuLieuController extends Controller
                     'chu_dau_tu' => $d->chu_dau_tu,
                     'loai_hinh' => $d->ten_loai_hinh,
                     'dia_diem' => $d->dia_diem,
+                    'dia_diem_truoc_day' => $d->diaDiemTruocDayDanhSach(),
                     'trang_thai' => $d->trang_thai,
                     'von_ty_dong' => $d->von_dang_ky,
                     'dien_tich_ha' => $d->dien_tich,

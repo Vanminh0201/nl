@@ -1,80 +1,76 @@
 {{--
-  Bảng báo cáo tháng theo mẫu (mỗi loại hình 1 bảng, chia nhóm I, II…, ghi chú cuối bảng).
-  Biến: $cauTruc (XuatExcelBaoCaoThang::cauTruc), $anCot (khoá các cột không hiện — trang quản lý ẩn cột chữ dài vì
-  đã có ở thẻ từng dự án), $phanNhom (bool — Sở chọn nhóm cho từng dòng,
-  sửa ghi chú; phải đặt trong form), $ghiChu (ghi chú Sở đã lưu theo mã loại hình), $lienKet (bool —
-  tên dự án dẫn tới báo cáo của chủ đầu tư).
+  Bảng báo cáo tháng theo mẫu "Tình hình triển khai các dự án năng lượng trên địa bàn tỉnh" (TongHopBaoCaoThang):
+  nhóm theo xã, trong xã chia theo tình trạng triển khai.
+  Biến: $bang; $ky (tháng của bảng); $hienNguon (bool — chip nguồn nội dung: Sở biên tập / chủ đầu tư / chép từ tháng
+  trước); $coTheSua (bool — nút "Sửa" từng dự án, mở hộp biên tập trên trang Sở).
 --}}
 @php
-  $xb = \App\Services\XuatExcelBaoCaoThang::class;
-  $phanNhom = $phanNhom ?? false;
-  $lienKet = $lienKet ?? false;
-  $ghiChu = $ghiChu ?? [];
-  $anCot = $anCot ?? [];
-  $dsNhom = config('duan.bao_cao_thang.nhom');
+  $hienNguon = $hienNguon ?? false;
+  $coTheSua = $coTheSua ?? false;
+  $soCot = 8 + ($coTheSua ? 1 : 0);
+  $tenKy = fn ($k) => 'T'.$k->thang.'/'.$k->nam;
+  $daCoNeo = [];
 @endphp
-@forelse ($cauTruc as $sh)
-  @php $cot = array_values(array_filter($sh['cot'], fn ($c) => ! in_array($c['khoa'], $anCot, true))); @endphp
-  <div class="bct-sheet">
-    <div class="bct-tieu-de-sheet"><b>{{ $sh['tieu_de'] }}</b><span class="chip">{{ $sh['muc']->count() }} dự án</span></div>
-    <div class="tablewrap bct-khung">
-      <table class="bct-bang {{ $anCot ? 'bct-gon' : '' }}">
-        <thead>
-          <tr>
-            @foreach ($cot as $c)<th class="bct-{{ $c['khoa'] }}">{!! nl2br(e($c['ten'])) !!}</th>@endforeach
-            @if ($phanNhom)<th class="bct-chon-nhom">Nhóm trong bảng tổng hợp</th>@endif
-          </tr>
-        </thead>
-        <tbody>
-        @foreach ($sh['nhom'] as $i => $nhom)
-          <tr class="bct-nhom">
-            <td>{{ \App\Models\BaoCaoTuan::soLaMa($i + 1) }}</td>
-            <td colspan="{{ count($cot) - 1 + ($phanNhom ? 1 : 0) }}">{{ $xb::tieuDeNhom($nhom) }}</td>
-          </tr>
-          @foreach ($nhom['muc'] as $j => $m)
-            <tr>
-              @foreach ($cot as $c)
-                @php $gt = $xb::giaTri($m, $c['khoa'], $j + 1); @endphp
-                <td class="bct-{{ $c['khoa'] }}">
-                  @if ($c['khoa'] === 'ten' && $lienKet && $m->baoCao)
-                    <a href="{{ route('bao-cao.thang.show', $m->baoCao) }}"><b>{{ $gt }}</b></a>
-                    <span class="chip {{ $m->baoCao->lop_chip }}" style="margin-top:3px;display:inline-block">{{ $m->baoCao->ten_trang_thai }}</span>
-                  @elseif ($c['khoa'] === 'ten')
-                    <b>{{ $gt }}</b>
-                  @else
-                    {{ $gt }}
-                  @endif
-                </td>
+@if ($bang['xa'])
+  <div class="tablewrap bct-khung">
+    <table class="bct-bang bct-xa">
+      <thead>
+        <tr>
+          <th rowspan="2" class="bct-tt">TT</th>
+          <th rowspan="2" class="bct-thong-tin">Thông tin dự án<span>(Tên, chủ đầu tư, công suất)</span></th>
+          <th rowspan="2" class="bct-moc">Dự kiến khởi công</th>
+          <th rowspan="2" class="bct-moc">Dự kiến hoàn thành</th>
+          <th rowspan="2" class="bct-dai">Tình hình thực hiện</th>
+          <th rowspan="2" class="bct-vua">Khó khăn vướng mắc</th>
+          <th colspan="2">Kiến nghị xử lý</th>
+          @if ($coTheSua)<th rowspan="2" class="bct-sua"><span class="sr-only">Biên tập</span></th>@endif
+        </tr>
+        <tr><th class="bct-vua">Xã/phường</th><th class="bct-vua">Sở, ngành</th></tr>
+      </thead>
+      <tbody>
+      @foreach ($bang['xa'] as $xa)
+        <tr class="bct-xa-dau" data-xa><td colspan="{{ $soCot }}">{{ $xa['ten'] }}</td></tr>
+        @foreach ($xa['nhom'] as $nhom)
+          <tr class="bct-tinh-trang" data-tinh-trang><td colspan="{{ $soCot }}">* {{ $nhom['ten'] }}</td></tr>
+          @foreach ($nhom['muc'] as $m)
+            @php
+              $id = $m['du_an']->id;
+              $neo = ! isset($daCoNeo[$id]);
+              $daCoNeo[$id] = true;
+            @endphp
+            <tr @if ($neo) id="th-{{ $id }}" @endif data-du-an="{{ $id }}" data-tim="{{ $m['ten'] }} {{ $m['chu_dau_tu'] }}"
+                data-co-noi-dung="{{ array_filter($m['noi_dung']) ? 1 : 0 }}">
+              <td class="bct-tt">{{ $m['tt'] }}</td>
+              <td class="bct-thong-tin">
+                <b>{{ $m['ten'] }}</b>
+                @if ($m['chu_dau_tu'])<div>{{ $m['chu_dau_tu'] }}</div>@endif
+                @if ($m['cong_suat'])<div>{{ $m['cong_suat'] }}</div>@endif
+                @if ($hienNguon)
+                  <div class="bct-nguon">
+                    @if ($m['nguon'] === 'so')
+                      <span class="chip xanh" title="Sở biên tập{{ $m['so_sua']?->nguoiSua ? ' — '.$m['so_sua']->nguoiSua->name : '' }}">Sở biên tập{{ $m['ky_nguon']->bang($ky) ? '' : ' · chép từ '.$tenKy($m['ky_nguon']) }}</span>
+                    @elseif ($m['nguon'] === 'chu_dau_tu')
+                      <a href="{{ route('bao-cao.thang.show', $m['bao_cao']) }}" class="chip {{ $m['ky_nguon']->bang($ky) ? 'co' : '' }}"
+                         title="Mở báo cáo của chủ đầu tư">Chủ đầu tư · {{ $m['ky_nguon']->bang($ky) ? $tenKy($m['ky_nguon']) : 'chép từ '.$tenKy($m['ky_nguon']) }}</a>
+                    @else
+                      <span class="chip">Chưa có nội dung</span>
+                    @endif
+                  </div>
+                @endif
+              </td>
+              @foreach (\App\Services\XuatExcelBaoCaoThang::COT_NOI_DUNG as $cot)
+                <td class="bct-van">@include('bao-cao._doan-van', ['chu' => $m['noi_dung'][$cot], 'trong' => ''])</td>
               @endforeach
-              @if ($phanNhom)
-                <td class="bct-chon-nhom">
-                  <select name="nhom[{{ $m->id }}]" aria-label="Nhóm của {{ $m->duAn?->ten }}">
-                    @foreach ($dsNhom as $ma => $ten)
-                      <option value="{{ $ma }}" @selected($m->maNhom() === $ma)>{{ \Illuminate\Support\Str::ucfirst(mb_strtolower($ten)) }}</option>
-                    @endforeach
-                  </select>
-                </td>
+              @if ($coTheSua)
+                <td class="bct-sua"><button type="button" class="btn sm" data-sua-th="{{ $id }}">Sửa</button></td>
               @endif
             </tr>
           @endforeach
         @endforeach
-        </tbody>
-      </table>
-    </div>
-    @php
-      $tuDong = $xb::ghiChuTuDong($sh['muc']);
-      $noiDung = $ghiChu[$sh['ma']] ?? $tuDong;
-    @endphp
-    @if ($phanNhom)
-      <label class="f bct-ghi-chu">Ghi chú cuối bảng "{{ $sh['ten'] }}"
-        <textarea name="ghi_chu[{{ $sh['ma'] }}]" rows="{{ max(3, substr_count($noiDung, "\n") + 2) }}">{{ $noiDung }}</textarea>
-      </label>
-    @elseif (trim($noiDung) !== '')
-      <div class="bct-ghi-chu"><b>Ghi chú:</b>
-        @foreach (\App\Models\BaoCaoTuanDuAn::tachDong($noiDung) as $d)<div>{{ $d }}</div>@endforeach
-      </div>
-    @endif
+      @endforeach
+      </tbody>
+    </table>
   </div>
-@empty
-  <p class="trong" style="margin:0">Chưa có báo cáo nào được gửi trong tháng này.</p>
-@endforelse
+@else
+  <p class="trong" style="margin:0">Chưa có dự án nào.</p>
+@endif

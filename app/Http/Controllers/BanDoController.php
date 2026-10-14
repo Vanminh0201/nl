@@ -33,7 +33,7 @@ class BanDoController extends Controller
         $xemMoiHoSo = $nguoiDung->vai_tro !== 'chu_dau_tu' || $nguoiDung->duocXem('tat_ca_du_an');
 
         $features = DuAn::withoutGlobalScope('chu_dau_tu')
-            ->loc($request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem']))
+            ->loc($request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'dia_diem_truoc_day']))
             ->withExists('hinhHoc')
             ->get()
             ->map(function (DuAn $d) use ($nguoiDung, $xemMoiHoSo) {
@@ -47,6 +47,7 @@ class BanDoController extends Controller
                     'mau' => $d->mau,
                     'trang_thai' => $d->trang_thai,
                     'dia_diem' => $d->dia_diem,
+                    'dia_diem_truoc_day' => $d->diaDiemTruocDayDanhSach(),
                     'cong_suat' => $d->cong_suat_mw,
                     'von' => $d->von_dang_ky,
                     'url' => route('du-an.show', $d),
@@ -316,7 +317,7 @@ class BanDoController extends Controller
     private function tenTuyenHaTang(string $ten): string
     {
         $s = preg_replace('/^(Đường dây|TBA)\s*\d+\s*kV(\s*—\s*(Hiện trạng|Quy hoạch))?\s*—\s*/u', '', $ten);
-        $s = trim(preg_replace('/\s*—\s*(điểm|đường)$/u', '', trim($s)), " —");
+        $s = trim(preg_replace('/\s*—\s*(điểm|đường)$/u', '', trim($s)), ' —');
 
         $nhan = [
             'điểm' => 'Vị trí cột (dùng chung)',

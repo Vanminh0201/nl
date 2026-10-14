@@ -17,11 +17,16 @@ class LopHaTangController extends Controller
 {
     public function index()
     {
+        $lop = LopHaTang::withCount([
+            'doiTuong',
+            'doiTuong as so_tram' => fn ($q) => $q->where('loai', 'tram'),
+        ])->latest()->get();
+
         return view('lop-ha-tang.index', [
-            'lop' => LopHaTang::withCount([
-                'doiTuong',
-                'doiTuong as so_tram' => fn ($q) => $q->where('loai', 'tram'),
-            ])->latest()->get(),
+            'lop' => $lop,
+            'soLopDangBat' => $lop->where('hien_thi', true)->count(),
+            'tongDoiTuong' => $lop->sum('doi_tuong_count'),
+            'tongTram' => $lop->sum('so_tram'),
             'dsBieuTuong' => BieuTuong::danhSach()->values(),
         ]);
     }

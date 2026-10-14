@@ -20,7 +20,8 @@
   $thongTin = array_filter([
     'Chủ đầu tư' => $duAn->chu_dau_tu,
     'Tài khoản chủ đầu tư' => $duAn->taiKhoanChuDauTu?->name,
-    'Địa điểm' => $duAn->dia_diem,
+    'Địa điểm trước đây' => implode(', ', $duAn->diaDiemTruocDayDanhSach()),
+    'Địa điểm hiện nay' => $duAn->dia_diem,
     'Khởi công' => $duAn->ngay_khoi_cong?->format('d/m/Y'),
     'Hoàn thành' => $duAn->tien_do_van_hanh ?: $duAn->ngay_hoan_thanh?->format('d/m/Y'),
     'Toạ độ' => $duAn->vi_do ? number_format($duAn->vi_do, 5).', '.number_format($duAn->kinh_do, 5) : null,

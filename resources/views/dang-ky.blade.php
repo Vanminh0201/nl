@@ -31,13 +31,14 @@
         <label class="f full">Dự án bạn là chủ đầu tư (có thể chọn nhiều, không bắt buộc)
           <input type="search" id="timDuAn" placeholder="Gõ để tìm tên dự án…">
         </label>
+        <p class="hint full" style="margin:0">Dự án bạn chọn chỉ là yêu cầu chờ quản trị viên kiểm tra. Dự án chỉ được gán cho tài khoản sau khi quản trị viên duyệt.</p>
         <div class="full ds-du-an-chon" id="dsDuAnChon">
           @forelse ($dsDuAn as $d)
             <label>
               <input type="checkbox" name="du_an_ids[]" value="{{ $d->id }}"
                      @checked(in_array($d->id, old('du_an_ids', [])))>
               <span>{{ $d->ten }}</span>
-              <small>{{ $d->ten_loai_hinh }}@if ($d->dia_diem) — {{ $d->dia_diem }}@endif</small>
+              <small>{{ $d->ten_loai_hinh }}@if ($d->dia_diem) — Hiện nay: {{ $d->dia_diem }}@endif @if ($d->diaDiemTruocDayDanhSach()) — Trước đây: {{ implode(', ', $d->diaDiemTruocDayDanhSach()) }}@endif</small>
             </label>
           @empty
             <p class="hint" style="margin:0">Chưa có dự án nào trong hệ thống.</p>

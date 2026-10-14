@@ -32,7 +32,8 @@ class TaoTepWord
 
     /**
      * @param  array  $hang  mỗi hàng là danh sách ô; ô là chuỗi (xuống dòng = sang đoạn mới) hoặc
-     *                       ['doan' => [[noiDung, tc], ...], 'nen' => 'EEEEEE']
+     *                       ['doan' => [[noiDung, tc], ...], 'nen' => 'EEEEEE', 'gop' => số cột gộp ngang,
+     *                       'gop_doc' => 'dau' (ô đầu của nhóm gộp dọc) | 'tiep' (ô bị gộp vào ô phía trên), 'giua_doc' => true]
      * @param  array  $rongCot  độ rộng từng cột (cm)
      * @param  array  $tc  vien (mặc định true), so_hang_tieu_de (lặp lại đầu mỗi trang), o (tc mặc định cho ô dạng chuỗi),
      *                     le_o (lề trái/phải trong ô, cm — mặc định 0,15)
@@ -62,12 +63,24 @@ class TaoTepWord
 
         foreach ($hang as $i => $cacO) {
             $xml .= '<w:tr>'.($i < $soHangTieuDe ? '<w:trPr><w:tblHeader/></w:trPr>' : '');
-            foreach (array_values($cacO) as $j => $o) {
-                $xml .= '<w:tc><w:tcPr><w:tcW w:w="'.($rong[$j] ?? 0).'" w:type="dxa"/>';
+            $cot = 0;
+            foreach (array_values($cacO) as $o) {
+                $gop = is_array($o) ? max(1, (int) ($o['gop'] ?? 1)) : 1;
+                $xml .= '<w:tc><w:tcPr><w:tcW w:w="'.array_sum(array_slice($rong, $cot, $gop)).'" w:type="dxa"/>';
+                if ($gop > 1) {
+                    $xml .= '<w:gridSpan w:val="'.$gop.'"/>';
+                }
+                if (is_array($o) && ! empty($o['gop_doc'])) {
+                    $xml .= $o['gop_doc'] === 'dau' ? '<w:vMerge w:val="restart"/>' : '<w:vMerge/>';
+                }
                 if (is_array($o) && ! empty($o['nen'])) {
                     $xml .= '<w:shd w:val="clear" w:color="auto" w:fill="'.$o['nen'].'"/>';
                 }
+                if (is_array($o) && ! empty($o['giua_doc'])) {
+                    $xml .= '<w:vAlign w:val="center"/>';
+                }
                 $xml .= '</w:tcPr>';
+                $cot += $gop;
 
                 $cacDoan = is_array($o)
                     ? ($o['doan'] ?? [])

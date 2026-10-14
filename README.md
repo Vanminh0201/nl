@@ -57,6 +57,9 @@ php artisan tinker --execute="App\Models\User::create(['name'=>'Tên hiển th�
 
 Đổi `vai_tro` thành `chu_dau_tu` cho tài khoản chủ đầu tư. Tài khoản chủ đầu tư chỉ thấy dự án có gán
 "Tài khoản chủ đầu tư" trùng với mình — gán ở mục Sửa dự án, chỉ quản trị và nhập liệu thấy được ô này.
+Khi chủ đầu tư tự đăng ký, dự án chọn kèm theo chỉ là yêu cầu chờ duyệt; hệ thống chỉ gán dự án sau khi
+quản trị viên kiểm tra. Khi duyệt tài khoản, quản trị viên tự chọn các dự án được gán; có thể bỏ qua yêu cầu
+đăng ký hoặc duyệt tài khoản chưa gán dự án nào. Dự án đã được gán cho tài khoản khác không thể chọn.
 
 Ở môi trường không phải production, seeder nạp thêm 6 dự án mẫu gắn nhãn "dữ liệu thử".
 Toạ độ của chúng là ước lượng, không phải số liệu thật. Xoá trước khi nhập danh mục thực tế:

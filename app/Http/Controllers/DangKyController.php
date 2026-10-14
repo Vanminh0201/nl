@@ -16,7 +16,9 @@ class DangKyController extends Controller
         return view('dang-ky', [
             // Dự án đã có tài khoản chủ đầu tư quản lý thì bỏ khỏi danh sách chọn — tránh
             // người đăng ký sau nhận nhầm dự án đã có người phụ trách.
-            'dsDuAn' => DuAn::whereNull('chu_dau_tu_id')->orderBy('ten')->get(['id', 'ten', 'loai_hinh', 'dia_diem']),
+            'dsDuAn' => DuAn::whereNull('chu_dau_tu_id')->orderBy('ten')->get([
+                'id', 'ten', 'loai_hinh', 'dia_diem', 'dia_diem_hien_nay', 'dia_diem_truoc_day',
+            ]),
         ]);
     }
 
@@ -52,13 +54,8 @@ class DangKyController extends Controller
             'don_vi' => $data['don_vi'] ?? null,
             'vai_tro' => 'chu_dau_tu',
             'da_duyet' => false,
+            'du_an_cho_duyet' => array_values(array_unique($data['du_an_ids'] ?? [])) ?: null,
         ]);
-
-        // Gán ngay lúc đăng ký để quản trị viên thấy được nhà đầu tư nhận dự án nào khi
-        // duyệt — tài khoản vẫn chưa đăng nhập được nên chưa có rủi ro gì trước khi duyệt.
-        if (! empty($data['du_an_ids'])) {
-            DuAn::whereIn('id', $data['du_an_ids'])->whereNull('chu_dau_tu_id')->update(['chu_dau_tu_id' => $taiKhoan->id]);
-        }
 
         return redirect()->route('dang-nhap')->with('thong_bao',
             'Đăng ký thành công. Tài khoản đang chờ quản trị viên duyệt, vui lòng quay lại đăng nhập sau.');

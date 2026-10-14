@@ -88,6 +88,8 @@ Route::middleware('auth')->group(function () {
             ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.tong-hop-in');
         Route::get('/bao-cao/thong-ke', [ThongKeBaoCaoController::class, 'index'])
             ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.thong-ke');
+        Route::get('/bao-cao/tien-do', [ThongKeBaoCaoController::class, 'index'])
+            ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.tien-do');
         Route::get('/bao-cao/{baoCao}', [BaoCaoController::class, 'show'])->whereNumber('baoCao')->name('bao-cao.show');
         Route::get('/bao-cao/{baoCao}/word', [BaoCaoController::class, 'word'])->whereNumber('baoCao')->name('bao-cao.word');
         Route::patch('/bao-cao/{baoCao}/xu-ly', [BaoCaoController::class, 'xuLy'])->whereNumber('baoCao')
@@ -101,10 +103,12 @@ Route::middleware('auth')->group(function () {
         Route::post('/bao-cao/thang/soan', [BaoCaoThangController::class, 'luu'])->name('bao-cao.thang.luu');
         Route::get('/bao-cao/thang/tong-hop/excel', [BaoCaoThangController::class, 'tongHopExcel'])
             ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.thang.tong-hop-excel');
+        Route::get('/bao-cao/thang/tong-hop/word', [BaoCaoThangController::class, 'tongHopWord'])
+            ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.thang.tong-hop-word');
         Route::get('/bao-cao/thang/tong-hop/in', [BaoCaoThangController::class, 'tongHopIn'])
             ->middleware('phan_quyen:quan_tri,nhap_lieu,xem')->name('bao-cao.thang.tong-hop-in');
-        Route::post('/bao-cao/thang/phan-nhom', [BaoCaoThangController::class, 'phanNhom'])
-            ->middleware('phan_quyen:quan_tri')->name('bao-cao.thang.phan-nhom');
+        Route::post('/bao-cao/thang/tong-hop/{duAn}', [BaoCaoThangController::class, 'luuTongHop'])->whereNumber('duAn')
+            ->middleware('phan_quyen:quan_tri,nhap_lieu')->name('bao-cao.thang.tong-hop-luu');
         Route::get('/bao-cao/thang/{baoCao}', [BaoCaoThangController::class, 'show'])->whereNumber('baoCao')->name('bao-cao.thang.show');
         Route::get('/bao-cao/thang/{baoCao}/excel', [BaoCaoThangController::class, 'excel'])->whereNumber('baoCao')->name('bao-cao.thang.excel');
         Route::patch('/bao-cao/thang/{baoCao}/xu-ly', [BaoCaoThangController::class, 'xuLy'])->whereNumber('baoCao')

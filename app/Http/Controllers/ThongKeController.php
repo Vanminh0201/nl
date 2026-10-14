@@ -12,7 +12,7 @@ class ThongKeController extends Controller
 {
     public function index(Request $request)
     {
-        $dk = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem']);
+        $dk = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'dia_diem_truoc_day']);
         $co_ban = fn () => DuAn::query()->loc($dk);
 
         $soLuong = $co_ban()->selectRaw('
@@ -72,15 +72,26 @@ class ThongKeController extends Controller
             ]);
 
         $theoDiaBan = $co_ban()
-            ->select('dia_diem', DB::raw('COUNT(*) as so_luong'), DB::raw('COALESCE(SUM(von_dang_ky), 0) as von'))
+            ->get(['dia_diem', 'dia_diem_hien_nay', 'von_dang_ky'])
+            ->flatMap(function (DuAn $duAn): array {
+                $diaDiems = $duAn->diaDiemHienNayDanhSach();
+                if ($diaDiems === []) {
+                    $diaDiems = ['Chưa xác định'];
+                }
+
+                return array_map(fn (string $diaDiem) => [
+                    'dia_diem' => $diaDiem,
+                    'von' => (float) $duAn->von_dang_ky,
+                ], $diaDiems);
+            })
             ->groupBy('dia_diem')
-            ->orderByDesc('so_luong')
-            ->get()
-            ->map(fn ($r) => [
-                'nhan' => $r->dia_diem ?: 'Chưa xác định',
-                'so_luong' => (int) $r->so_luong,
-                'von' => (float) $r->von,
-            ]);
+            ->map(fn ($duAns, $diaDiem) => [
+                'nhan' => $diaDiem,
+                'so_luong' => $duAns->count(),
+                'von' => $duAns->sum('von'),
+            ])
+            ->sortByDesc('so_luong')
+            ->values();
 
         $hoSoThieu = collect(DuAn::HO_SO_PHAP_LY)->map(fn ($nhan, $cot) => [
             'nhan' => $nhan,

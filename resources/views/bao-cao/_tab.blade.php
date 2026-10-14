@@ -11,22 +11,19 @@
   if (! $laCdt || $nd->phaiBaoCaoThang() || $nd->baoCaoThang()->exists()) {
     $tabBc['bao-cao.thang.index'] = ['Báo cáo tháng', $coTheXuLy ? \App\Models\BaoCaoThang::where('trang_thai', 'da_nop')->count() : 0];
   }
-  // Sản lượng điện tháng: chủ đầu tư có dự án nguồn điện đã vận hành
-  $coSanLuong = ! $laCdt || $nd->duAnVanHanh()->exists();
-  if ($coSanLuong) {
-    $tabBc['bao-cao.san-luong.index'] = ['Sản lượng điện', 0];
+  // Sản lượng điện tháng (tình hình gửi + thống kê): chủ đầu tư có dự án nguồn điện đã vận hành
+  if (! $laCdt || $nd->duAnVanHanh()->exists()) {
+    $tabBc['bao-cao.san-luong.index'] = ['Sản lượng điện', $coTheXuLy ? \App\Models\SanLuongThang::where('trang_thai', 'da_gui')->count() : 0];
   }
   if (! $laCdt) {
     $tabBc['bao-cao.thong-ke'] = ['Thống kê báo cáo', 0];
-  }
-  if ($coSanLuong) {
-    $tabBc['bao-cao.san-luong.thong-ke'] = ['Thống kê sản lượng', 0];
+    $tabBc['bao-cao.tien-do'] = ['Tiến độ & giải ngân', 0];
   }
   if ($nd->vai_tro === 'quan_tri') {
     $tabBc['bao-cao.cai-dat'] = ['Cài đặt báo cáo', 0];
   }
-  $iconTab = ['bao-cao.index' => 'tuan', 'bao-cao.thang.index' => 'thang', 'bao-cao.thong-ke' => 'thong-ke', 'bao-cao.cai-dat' => 'cai-dat',
-    'bao-cao.san-luong.index' => 'san-luong', 'bao-cao.san-luong.thong-ke' => 'bieu-do'];
+  $iconTab = ['bao-cao.index' => 'tuan', 'bao-cao.thang.index' => 'thang', 'bao-cao.thong-ke' => 'thong-ke', 'bao-cao.tien-do' => 'bieu-do', 'bao-cao.cai-dat' => 'cai-dat',
+    'bao-cao.san-luong.index' => 'san-luong'];
 @endphp
 @if (count($tabBc) > 1)
   <nav class="bc-tab" aria-label="Loại báo cáo">

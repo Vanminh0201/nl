@@ -6,25 +6,43 @@
 @endpush
 
 @section('noi_dung')
-<div class="pad">
-  <form method="post" class="sheet" enctype="multipart/form-data"
+<div class="pad du-an-form-page">
+  <form method="post" class="sheet du-an-form-sheet" enctype="multipart/form-data"
         action="{{ $duAn->exists ? route('du-an.update', $duAn) : route('du-an.store') }}">
     @csrf
     @if ($duAn->exists) @method('put') @endif
 
-    <div class="sheet-hd"><h2>{{ $duAn->exists ? 'Sửa dự án' : 'Thêm dự án' }}</h2></div>
+    <div class="sheet-hd du-an-form-hd">
+      <div class="du-an-form-heading">
+        <span class="du-an-form-eyebrow">QUẢN LÝ DANH MỤC DỰ ÁN</span>
+        <h1>{{ $duAn->exists ? 'Cập nhật dự án' : 'Thêm dự án mới' }}</h1>
+        <p>{{ $duAn->exists ? 'Cập nhật thông tin, hồ sơ và vị trí của dự án.' : 'Nhập thông tin cơ bản trước; các mục hồ sơ và bản đồ có thể bổ sung sau.' }}</p>
+      </div>
+      <span class="du-an-form-required"><i aria-hidden="true">*</i> Trường bắt buộc</span>
+    </div>
 
     <div class="sheet-bd">
       @if ($errors->any())
-        <div class="loi">Chưa lưu được, cần sửa các điểm sau:
+        <div class="loi du-an-form-errors" role="alert"><b>Chưa lưu được dự án.</b> Vui lòng kiểm tra:
           <ul>@foreach ($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
         </div>
       @endif
 
-      <fieldset>
-        <legend>Thông tin chung</legend>
+      <nav class="du-an-form-nav" aria-label="Các phần trong biểu mẫu">
+        <a href="#thongTinChung"><span>01</span> Thông tin chung</a>
+        <a href="#quyMoTienDo"><span>02</span> Quy mô &amp; tiến độ</a>
+        <a href="#hoSoPhapLy"><span>03</span> Hồ sơ pháp lý</a>
+        <a href="#viTriBanDo"><span>04</span> Vị trí bản đồ</a>
+        <a href="#ghiChu"><span>05</span> Ghi chú</a>
+      </nav>
+
+      <fieldset class="du-an-form-section" id="thongTinChung">
+        <legend>
+          <span class="du-an-form-step">01</span>
+          <span class="du-an-form-section-title">Thông tin chung<small>Định danh dự án, đơn vị đầu tư và trạng thái hiện tại.</small></span>
+        </legend>
         <div class="grid">
-          <label class="f full">Tên dự án
+          <label class="f full"><span class="du-an-form-field-label">Tên dự án <i class="du-an-form-required-mark" aria-label="Bắt buộc">*</i></span>
             <input name="ten" value="{{ old('ten', $duAn->ten) }}" required maxlength="255">
           </label>
           <label class="f">Chủ đầu tư
@@ -39,18 +57,86 @@
             </select>
             <span class="hint">Gán tài khoản để chủ đầu tư đăng nhập chỉ thấy riêng dự án này.</span>
           </label>
-          <label class="f">Loại hình
-            <select name="loai_hinh" id="loaiHinh">
+          <label class="f"><span class="du-an-form-field-label">Loại hình <i class="du-an-form-required-mark" aria-label="Bắt buộc">*</i></span>
+            <select name="loai_hinh" id="loaiHinh" required>
               @foreach ($dsLoaiHinh as $ma => $l)
                 <option value="{{ $ma }}" data-mau="{{ $l->mau }}" data-bieu-tuong="{{ $l->bieu_tuong }}" @selected(old('loai_hinh', $duAn->loai_hinh) === $ma)>{{ $l->ten }}</option>
               @endforeach
             </select>
           </label>
-          <label class="f">Địa điểm (xã, phường)
-            <input name="dia_diem" value="{{ old('dia_diem', $duAn->dia_diem) }}" placeholder="VD: phường Đông Hà" list="ds-dia-diem">
-          </label>
-          <label class="f">Trạng thái
-            <select name="trang_thai">
+          @php
+            $diaDiemHienNayMacDinh = old('dia_diem_hien_nay', $duAn->diaDiemHienNayDanhSach());
+            $diaDiemHienNayChon = is_array($diaDiemHienNayMacDinh) ? $diaDiemHienNayMacDinh : [];
+            $diaDiemCuMacDinh = old('dia_diem_truoc_day', $duAn->diaDiemTruocDayDanhSach());
+            $diaDiemCuChon = is_array($diaDiemCuMacDinh) ? $diaDiemCuMacDinh : [];
+            $diaDiemHienNayCu = array_values(array_diff($diaDiemHienNayChon, $diaDiem));
+            $diaDiemTruocDayChuan = collect($diaDiemTruocDay)->flatten()->all();
+            $diaDiemTruocDayCu = array_values(array_diff($diaDiemCuChon, $diaDiemTruocDayChuan));
+          @endphp
+          <div class="f full du-an-dia-diem" data-nhom-dia-diem>
+            <span class="du-an-form-field-label">Địa điểm trước đây</span>
+            <div class="du-an-dia-diem-card">
+              <div class="du-an-dia-diem-toolbar">
+                <input type="search" data-tim-dia-diem placeholder="Tìm xã/phường cũ..." aria-label="Tìm xã/phường cũ">
+                <span data-dem-dia-diem class="du-an-dia-diem-count" aria-live="polite"></span>
+                <button type="button" class="btn sm" data-chon-dia-diem>Chọn các mục đang hiển thị</button>
+                <button type="button" class="btn sm" data-bo-chon-dia-diem>Bỏ chọn các mục đang hiển thị</button>
+              </div>
+              <div class="du-an-dia-diem-list" role="group" aria-label="Chọn một hoặc nhiều địa điểm theo địa giới cũ">
+                @foreach ($diaDiemTruocDay as $tinh => $dsHuyen)
+                  <section class="du-an-dia-diem-province" data-dia-diem-province>
+                    <h4>{{ $tinh }}</h4>
+                    @foreach ($dsHuyen as $huyen => $dsDiaDiem)
+                      <div class="du-an-dia-diem-district" data-dia-diem-district>
+                        <h5>{{ $huyen }}</h5>
+                        @foreach ($dsDiaDiem as $dd)
+                          <label class="du-an-dia-diem-option" data-dia-diem-option data-dia-diem-search="{{ $dd }} {{ $huyen }} {{ $tinh }}">
+                            <input type="checkbox" name="dia_diem_truoc_day[]" value="{{ $dd }}" @checked(in_array($dd, $diaDiemCuChon, true))>
+                            <span>{{ explode(' — ', $dd, 2)[0] }}</span>
+                          </label>
+                        @endforeach
+                      </div>
+                    @endforeach
+                  </section>
+                @endforeach
+                @foreach ($diaDiemTruocDayCu as $ddCu)
+                  <label class="du-an-dia-diem-option du-an-dia-diem-legacy" data-dia-diem-option data-dia-diem-search="{{ $ddCu }}">
+                    <input type="checkbox" name="dia_diem_truoc_day[]" value="{{ $ddCu }}" checked>
+                    <span>{{ $ddCu }} <small>Giá trị cũ, chưa đối chiếu</small></span>
+                  </label>
+                @endforeach
+              </div>
+              <span class="hint">Danh mục xã/phường theo địa giới Quảng Bình và Quảng Trị trước sáp nhập. Có thể tích chọn nhiều địa điểm.</span>
+            </div>
+          </div>
+          <div class="f full du-an-dia-diem" data-nhom-dia-diem>
+            <span class="du-an-form-field-label">Địa điểm hiện nay</span>
+            <div class="du-an-dia-diem-card">
+              <div class="du-an-dia-diem-toolbar">
+                <input type="search" data-tim-dia-diem placeholder="Tìm xã/phường hiện nay..." aria-label="Tìm xã/phường hiện nay">
+                <span data-dem-dia-diem class="du-an-dia-diem-count" aria-live="polite"></span>
+                <button type="button" class="btn sm" data-chon-dia-diem>Chọn các mục đang hiển thị</button>
+                <button type="button" class="btn sm" data-bo-chon-dia-diem>Bỏ chọn các mục đang hiển thị</button>
+              </div>
+              <div class="du-an-dia-diem-list du-an-dia-diem-current" role="group" aria-label="Chọn một hoặc nhiều xã/phường hiện nay">
+                @foreach ($diaDiem as $dd)
+                  <label class="du-an-dia-diem-option" data-dia-diem-option data-dia-diem-search="{{ $dd }}">
+                    <input type="checkbox" name="dia_diem_hien_nay[]" value="{{ $dd }}" @checked(in_array($dd, $diaDiemHienNayChon, true))>
+                    <span>{{ $dd }}</span>
+                  </label>
+                @endforeach
+                @foreach ($diaDiemHienNayCu as $ddCu)
+                  <label class="du-an-dia-diem-option du-an-dia-diem-legacy" data-dia-diem-option data-dia-diem-search="{{ $ddCu }}">
+                    <input type="checkbox" name="dia_diem_hien_nay[]" value="{{ $ddCu }}" checked>
+                    <span>{{ $ddCu }} <small>Giá trị cũ, chưa đối chiếu</small></span>
+                  </label>
+                @endforeach
+              </div>
+              <span class="hint">Danh mục 78 xã, phường và đặc khu hiện nay của tỉnh Quảng Trị. Tích chọn tất cả đơn vị có dự án đi qua.</span>
+            </div>
+          </div>
+          <label class="f"><span class="du-an-form-field-label">Trạng thái <i class="du-an-form-required-mark" aria-label="Bắt buộc">*</i></span>
+            <select name="trang_thai" required>
               @foreach ($dsTrangThai as $ten => $t)
                 <option value="{{ $ten }}" @selected(old('trang_thai', $duAn->trang_thai) === $ten)>{{ $ten }}</option>
               @endforeach
@@ -59,8 +145,11 @@
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Quy mô và tiến độ</legend>
+      <fieldset class="du-an-form-section" id="quyMoTienDo">
+        <legend>
+          <span class="du-an-form-step">02</span>
+          <span class="du-an-form-section-title">Quy mô và tiến độ<small>Thông tin vốn, quy mô kỹ thuật và các mốc triển khai.</small></span>
+        </legend>
         <div class="grid">
           <label class="f">Vốn đăng ký (tỷ đồng)
             <input type="number" step="0.01" min="0" name="von_dang_ky" value="{{ old('von_dang_ky', $duAn->von_dang_ky) }}">
@@ -101,8 +190,12 @@
         $dayDu = App\Models\DuAn::HO_SO_PHAP_LY_DAY_DU;
         $soHoSoCo = collect(array_keys($dsHoSo))->filter(fn ($c) => (bool) old($c, $duAn->$c))->count();
       @endphp
-      <fieldset class="pl-khoi">
-        <legend>Hồ sơ pháp lý đã có <span class="pl-dem" id="plDem">{{ $soHoSoCo }}/{{ count($dsHoSo) }}</span></legend>
+      <fieldset class="pl-khoi du-an-form-section" id="hoSoPhapLy">
+        <legend>
+          <span class="du-an-form-step">03</span>
+          <span class="du-an-form-section-title">Tình trạng hồ sơ pháp lý<small>Đánh dấu những thủ tục đã hoàn tất hoặc đã có hồ sơ.</small></span>
+          <span class="pl-dem" id="plDem">{{ $soHoSoCo }}/{{ count($dsHoSo) }}</span>
+        </legend>
         <div class="pl-luoi">
           @foreach ($dsHoSo as $cot => $nhan)
             <label class="pl-o" @isset($dayDu[$cot]) title="{{ $dayDu[$cot] }}" @endisset>
@@ -133,11 +226,13 @@
         $dsVb = $duAn->vanBanPhapLy->sortBy(fn ($v) => [$thuTuHs[$v->ho_so] ?? 99, -($v->ngay_van_ban?->timestamp ?? 0), $v->thu_tu])->values();
         $nhanTep = '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip,.rar';
       @endphp
-      <fieldset>
-        <legend>Văn bản hồ sơ pháp lý</legend>
+      <fieldset class="du-an-form-section du-an-form-subsection">
+        <legend>
+          <span class="du-an-form-section-title">Văn bản và tài liệu đính kèm<small>Thêm số, ngày ban hành và tệp quyết định cho từng hồ sơ.</small></span>
+        </legend>
         <div id="dsVanBan">
           @foreach ($dsVb as $i => $vb)
-            <div class="van-ban-hang" style="border:1px solid var(--line);border-radius:var(--radius);padding:11px;margin-bottom:9px">
+            <div class="van-ban-hang du-an-document-row">
               <input type="hidden" name="van_ban[{{ $i }}][id]" value="{{ $vb->id }}">
               <div class="grid">
                 <label class="f">Hồ sơ
@@ -171,7 +266,7 @@
       </fieldset>
 
       <template id="mauVanBan">
-        <div class="van-ban-hang" style="border:1px solid var(--line);border-radius:var(--radius);padding:11px;margin-bottom:9px">
+        <div class="van-ban-hang du-an-document-row">
           <div class="grid">
             <label class="f">Hồ sơ
               <select name="van_ban[__I__][ho_so]" class="vb-ho-so" required>
@@ -198,8 +293,11 @@
         </div>
       </template>
 
-      <fieldset>
-        <legend>Vị trí trên bản đồ</legend>
+      <fieldset class="du-an-form-section" id="viTriBanDo">
+        <legend>
+          <span class="du-an-form-step">04</span>
+          <span class="du-an-form-section-title">Vị trí và dữ liệu bản đồ<small>Đặt tọa độ đại diện hoặc nhập lớp không gian từ KML, KMZ, GeoJSON.</small></span>
+        </legend>
         <div class="grid">
           <label class="f">Vĩ độ (toạ độ đại diện)
             <input type="number" step="0.0000001" name="vi_do" id="viDo" value="{{ old('vi_do', $duAn->vi_do) }}" placeholder="16.8163">
@@ -249,26 +347,25 @@
         <div id="oHinhHocAn"><input type="hidden" name="hinh_hoc_json" id="hinhHocJson"></div>
       </fieldset>
 
-      <fieldset>
-        <legend>Ghi chú</legend>
+      <fieldset class="du-an-form-section" id="ghiChu">
+        <legend>
+          <span class="du-an-form-step">05</span>
+          <span class="du-an-form-section-title">Ghi chú và nội dung theo dõi<small>Vướng mắc, kiến nghị hoặc thông tin cần lưu ý.</small></span>
+        </legend>
         <label class="f">Vướng mắc, kiến nghị, nội dung cần theo dõi
           <textarea name="ghi_chu">{{ old('ghi_chu', $duAn->ghi_chu) }}</textarea>
         </label>
       </fieldset>
     </div>
 
-    <div class="sheet-ft">
+    <div class="sheet-ft du-an-form-ft">
+      <span>Lưu thông tin trước khi rời trang để tránh mất thay đổi.</span>
       <a href="{{ $duAn->exists ? route('du-an.show', $duAn) : route('du-an.index') }}" class="btn">Huỷ</a>
-      <button class="btn primary">Lưu dự án</button>
+      <button type="submit" class="btn primary">{{ $duAn->exists ? 'Lưu thay đổi' : 'Lưu dự án' }}</button>
     </div>
   </form>
 </div>
 
-<datalist id="ds-dia-diem">
-  @foreach ($diaDiem as $dd)
-    <option value="{{ $dd }}">
-  @endforeach
-</datalist>
 @endsection
 
 @push('cuoi_trang')
@@ -765,6 +862,50 @@
       o.checked = true;
       o.dispatchEvent(new Event('change'));
     }
+  });
+})();
+</script>
+<script>
+(function () {
+  document.querySelectorAll('[data-nhom-dia-diem]').forEach(function (khung) {
+    var hop = khung.querySelector('.du-an-dia-diem-list');
+    var tim = khung.querySelector('[data-tim-dia-diem]');
+    var dem = khung.querySelector('[data-dem-dia-diem]');
+    if (!hop || !tim || !dem) return;
+
+    var muc = Array.prototype.slice.call(hop.querySelectorAll('[data-dia-diem-option]'));
+    function capNhat() {
+      var tuKhoa = tim.value.trim().toLocaleLowerCase('vi');
+      var daChon = 0;
+      muc.forEach(function (dong) {
+        var noiDung = dong.dataset.diaDiemSearch || dong.textContent;
+        dong.hidden = noiDung.toLocaleLowerCase('vi').indexOf(tuKhoa) === -1;
+        if (dong.querySelector('input').checked) daChon++;
+      });
+      khung.querySelectorAll('[data-dia-diem-district]').forEach(function (huyen) {
+        huyen.hidden = !huyen.querySelector('[data-dia-diem-option]:not([hidden])');
+      });
+      khung.querySelectorAll('[data-dia-diem-province]').forEach(function (tinh) {
+        tinh.hidden = !tinh.querySelector('[data-dia-diem-district]:not([hidden])');
+      });
+      dem.textContent = daChon + ' địa điểm đã chọn';
+    }
+
+    tim.addEventListener('input', capNhat);
+    khung.querySelector('[data-chon-dia-diem]').addEventListener('click', function () {
+      muc.forEach(function (dong) {
+        if (!dong.hidden) dong.querySelector('input').checked = true;
+      });
+      capNhat();
+    });
+    khung.querySelector('[data-bo-chon-dia-diem]').addEventListener('click', function () {
+      muc.forEach(function (dong) {
+        if (!dong.hidden) dong.querySelector('input').checked = false;
+      });
+      capNhat();
+    });
+    hop.addEventListener('change', capNhat);
+    capNhat();
   });
 })();
 </script>

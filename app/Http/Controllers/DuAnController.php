@@ -11,9 +11,11 @@ use App\Models\LoaiHinhDuAn;
 use App\Models\TrangThaiDuAn;
 use App\Models\User;
 use App\Services\DocDuLieuKhongGian;
+use App\Support\DiaDiemQuangTri;
+use App\Support\DiaDiemQuangTriTruocSapNhap;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use RuntimeException;
 
 class DuAnController extends Controller
@@ -30,11 +32,11 @@ class DuAnController extends Controller
             : 'ten';
         $chieu = $request->query('chieu') === 'giam' ? 'desc' : 'asc';
 
-        $dkLoc = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'pl_chu_truong', 'ho_so']);
+        $dkLoc = $request->only(['tu_khoa', 'loai_hinh', 'trang_thai', 'dia_diem', 'dia_diem_truoc_day', 'pl_chu_truong', 'ho_so']);
 
         $duAn = DuAn::query()
             ->loc($dkLoc)
-            ->with('vanBanChinh')
+            ->with(['vanBanPhapLy', 'hoSoTep'])
             ->orderBy($sapXep, $chieu)
             ->paginate(25)
             ->withQueryString();
@@ -51,7 +53,10 @@ class DuAnController extends Controller
             'duAn' => $duAn,
             'sapXep' => $sapXep,
             'chieu' => $chieu,
-            'diaDiem' => DuAn::query()->whereNotNull('dia_diem')->distinct()->orderBy('dia_diem')->pluck('dia_diem'),
+            'diaDiem' => DiaDiemQuangTri::DANH_SACH,
+            'diaDiemCu' => $this->diaDiemCu(),
+            'diaDiemTruocDay' => DiaDiemQuangTriTruocSapNhap::nhomDanhSach(),
+            'diaDiemTruocDayCu' => $this->diaDiemTruocDayCu(),
             'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
             'dsTrangThai' => TrangThaiDuAn::danhSach(),
             'tongVon' => (float) $tongHop->tong_von,
@@ -67,7 +72,8 @@ class DuAnController extends Controller
                 'trang_thai' => TrangThaiDuAn::danhSach()->keys()->first(),
                 'loai_hinh' => LoaiHinhDuAn::danhSach()->keys()->first(),
             ]),
-            'diaDiem' => $this->diaDiemDaDung(),
+            'diaDiem' => DiaDiemQuangTri::DANH_SACH,
+            'diaDiemTruocDay' => DiaDiemQuangTriTruocSapNhap::nhomDanhSach(),
             'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
             'dsTrangThai' => TrangThaiDuAn::danhSach(),
             'dsBieuTuong' => BieuTuong::danhSach()->values(),
@@ -117,12 +123,12 @@ class DuAnController extends Controller
         ]);
     }
 
-
     public function edit(DuAn $duAn)
     {
         return view('du-an.form', [
             'duAn' => $duAn->load('vanBanPhapLy'),
-            'diaDiem' => $this->diaDiemDaDung(),
+            'diaDiem' => DiaDiemQuangTri::DANH_SACH,
+            'diaDiemTruocDay' => DiaDiemQuangTriTruocSapNhap::nhomDanhSach(),
             'dsLoaiHinh' => LoaiHinhDuAn::danhSach(),
             'dsTrangThai' => TrangThaiDuAn::danhSach(),
             'dsBieuTuong' => BieuTuong::danhSach()->values(),
@@ -174,7 +180,7 @@ class DuAnController extends Controller
 
             $vanBan = ! empty($r['id']) ? $duAn->vanBanPhapLy()->find($r['id']) : null;
 
-            if ($r['tep'] instanceof \Illuminate\Http\UploadedFile) {
+            if ($r['tep'] instanceof UploadedFile) {
                 $vanBan?->xoaTep();
                 $duLieu += DuAnVanBan::luuTep($r['tep'], $duAn->id);
             }
@@ -196,9 +202,28 @@ class DuAnController extends Controller
         $duAn->dongBoTheoVanBan();
     }
 
-    private function diaDiemDaDung()
+    private function diaDiemCu()
     {
-        return DuAn::query()->whereNotNull('dia_diem')->distinct()->orderBy('dia_diem')->pluck('dia_diem');
+        return DuAn::query()
+            ->get(['dia_diem', 'dia_diem_hien_nay'])
+            ->flatMap(fn (DuAn $duAn) => $duAn->diaDiemHienNayDanhSach())
+            ->reject(fn (string $diaDiem) => in_array($diaDiem, DiaDiemQuangTri::DANH_SACH, true))
+            ->unique()
+            ->sort()
+            ->values();
+    }
+
+    private function diaDiemTruocDayCu()
+    {
+        $diaDiemChuan = DiaDiemQuangTriTruocSapNhap::danhSach();
+
+        return DuAn::query()
+            ->get(['dia_diem_truoc_day'])
+            ->flatMap(fn (DuAn $duAn) => $duAn->diaDiemTruocDayDanhSach())
+            ->reject(fn (string $diaDiem) => in_array($diaDiem, $diaDiemChuan, true))
+            ->unique()
+            ->sort()
+            ->values();
     }
 
     private function taiKhoanChuDauTu()

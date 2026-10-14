@@ -57,6 +57,7 @@
     </div>
     <div class="panel tk-panel tk-panel-rong">
       <h3>Số dự án theo địa bàn</h3>
+      <p class="hint">Dự án có nhiều xã/phường được tính tại từng địa bàn đã chọn; không cộng các cột địa bàn thành tổng dự án.</p>
       <div class="tk-khung tk-khung-cao"><canvas id="bd-dia-ban"></canvas></div>
     </div>
     <div class="panel tk-panel">

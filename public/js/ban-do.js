@@ -3,6 +3,7 @@
   'use strict';
 
   var cfg = window.CAU_HINH_BAN_DO || {};
+  var chiNenVeTinh = window.CHI_DUOC_NEN_VE_TINH === true;
   var duong = window.DUONG_DAN;
   var csrfEl = document.querySelector('meta[name="csrf-token"]');
   var CSRF = csrfEl ? csrfEl.content : '';
@@ -88,7 +89,7 @@
   // "Đường phố" (OpenStreetMap, đã cập nhật địa giới sau sắp xếp — xem config/duan.php).
   // Nền bản đồ: public/js/nen-ban-do.js (tự chuyển nền dự phòng, chọn thời điểm ảnh vệ tinh, ngày chụp ảnh)
   var nenBanDo = window.NenBanDo ? window.NenBanDo.gan(map, {
-    dsNen: cfg.lop_nen || {}, chon: document.getElementById('locNen'),
+    dsNen: cfg.lop_nen || {}, chon: chiNenVeTinh ? null : document.getElementById('locNen'),
     thoiDiem: document.getElementById('locThoiDiemAnh'), baoLoi: canhBao
   }) : null;
   var lopNenTam = null;
@@ -102,7 +103,7 @@
     lopNenTam.bringToBack();
   }
 
-  chonLopNen(document.getElementById('locNen') ? document.getElementById('locNen').value : 'pho');
+  chonLopNen(chiNenVeTinh ? 've_tinh' : (document.getElementById('locNen') ? document.getElementById('locNen').value : 'pho'));
 
   var lopHaTang = L.layerGroup().addTo(map);
   var lopRanhGioi = L.layerGroup().addTo(map);

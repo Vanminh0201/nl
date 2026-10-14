@@ -2,18 +2,33 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\DuAn;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class TaiKhoanController extends Controller
 {
     public function index()
     {
+        $dsTaiKhoan = User::query()->with('duAn')->orderBy('da_duyet')->orderBy('name')->get();
+        $taiKhoanChoDuyet = $dsTaiKhoan->where('vai_tro', 'chu_dau_tu')->where('da_duyet', false);
+        $duAnChoDuyetIds = $taiKhoanChoDuyet->flatMap(fn (User $taiKhoan) => $taiKhoan->du_an_cho_duyet ?? [])->unique();
+        $taiKhoanChoDuyetIds = $taiKhoanChoDuyet->modelKeys();
+
         return view('tai-khoan.index', [
             // Tài khoản chưa duyệt (chủ đầu tư tự đăng ký) nổi lên đầu danh sách để quản trị
             // viên không bỏ sót — trong nhóm đã duyệt/chưa duyệt thì vẫn sắp theo tên.
-            'dsTaiKhoan' => User::query()->with('duAn')->orderBy('da_duyet')->orderBy('name')->get(),
+            'dsTaiKhoan' => $dsTaiKhoan,
+            'duAnChoDuyet' => DuAn::query()->whereIn('id', $duAnChoDuyetIds)->get(['id', 'ten'])->keyBy('id'),
+            'dsDuAnCoTheGan' => DuAn::query()
+                ->where(function ($query) use ($taiKhoanChoDuyetIds): void {
+                    $query->whereNull('chu_dau_tu_id')->orWhereIn('chu_dau_tu_id', $taiKhoanChoDuyetIds);
+                })
+                ->orderBy('ten')
+                ->get(['id', 'ten', 'loai_hinh', 'dia_diem', 'dia_diem_hien_nay', 'dia_diem_truoc_day', 'chu_dau_tu_id']),
             'vaiTro' => User::VAI_TRO,
             'mucXem' => User::MUC_XEM,
         ]);
@@ -21,9 +36,49 @@ class TaiKhoanController extends Controller
 
     public function duyet(Request $request, User $taiKhoan)
     {
-        $taiKhoan->update(['da_duyet' => true]);
+        abort_unless($taiKhoan->vai_tro === 'chu_dau_tu', 404);
 
-        return back()->with('thong_bao', "Đã duyệt tài khoản \"{$taiKhoan->name}\".");
+        if ($taiKhoan->da_duyet) {
+            return back()->with('thong_bao', "Tài khoản \"{$taiKhoan->name}\" đã được duyệt.");
+        }
+
+        $data = $request->validate([
+            'du_an_ids' => ['nullable', 'array'],
+            'du_an_ids.*' => ['required', 'integer', 'distinct', Rule::exists('du_an', 'id')],
+        ], [], ['du_an_ids' => 'dự án', 'du_an_ids.*' => 'dự án']);
+        $duAnIdsChon = array_values(array_unique($data['du_an_ids'] ?? []));
+
+        DB::transaction(function () use ($taiKhoan, $duAnIdsChon): void {
+            $taiKhoan = User::query()->lockForUpdate()->findOrFail($taiKhoan->getKey());
+            $dsDuAnChon = DuAn::query()
+                ->whereIn('id', $duAnIdsChon)
+                ->where(function ($query) use ($taiKhoan): void {
+                    $query->whereNull('chu_dau_tu_id')->orWhere('chu_dau_tu_id', $taiKhoan->id);
+                })
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id', 'chu_dau_tu_id']);
+
+            if ($dsDuAnChon->count() !== count($duAnIdsChon)) {
+                throw ValidationException::withMessages([
+                    'du_an_ids' => 'Không thể duyệt: có dự án bạn chọn đã được gán cho tài khoản khác hoặc không còn khả dụng. Hãy tải lại danh sách và chọn lại.',
+                ]);
+            }
+
+            DuAn::query()
+                ->where('chu_dau_tu_id', $taiKhoan->id)
+                ->whereNotIn('id', $duAnIdsChon ?: [0])
+                ->get()
+                ->each(fn (DuAn $duAn) => $duAn->update(['chu_dau_tu_id' => null]));
+
+            foreach ($dsDuAnChon as $duAn) {
+                $duAn->update(['chu_dau_tu_id' => $taiKhoan->id]);
+            }
+
+            $taiKhoan->update(['da_duyet' => true, 'du_an_cho_duyet' => null]);
+        });
+
+        return back()->with('thong_bao', "Đã duyệt tài khoản \"{$taiKhoan->name}\" và gán ".count($duAnIdsChon).' dự án.');
     }
 
     public function store(Request $request)

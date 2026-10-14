@@ -53,6 +53,12 @@
               </td>
               <td>
                 {{ $t->don_vi }}
+                @if ($t->vai_tro === 'chu_dau_tu' && ! $t->da_duyet && $t->du_an_cho_duyet)
+                  <div class="hint" style="margin-top:2px">
+                    Yêu cầu gán:
+                    {{ collect($t->du_an_cho_duyet)->map(fn ($id) => $duAnChoDuyet->get($id)?->ten ?? "Dự án #{$id} (không còn khả dụng)")->join(', ') }}
+                  </div>
+                @endif
                 @if ($t->vai_tro === 'chu_dau_tu' && $t->duAn->isNotEmpty())
                   <div class="hint" style="margin-top:2px">Dự án: {{ $t->duAn->pluck('ten')->join(', ') }}</div>
                 @endif
@@ -63,12 +69,13 @@
                 @endunless
               </td>
               <td style="white-space:nowrap">
-                @unless ($t->da_duyet)
-                  <form method="post" action="{{ route('tai-khoan.duyet', $t) }}" style="display:inline">
-                    @csrf @method('patch')
-                    <button class="btn sm primary">Duyệt</button>
-                  </form>
-                @endunless
+                @if ($t->vai_tro === 'chu_dau_tu' && ! $t->da_duyet)
+                  <button type="button" class="btn sm primary" data-duyet
+                          data-action="{{ route('tai-khoan.duyet', $t) }}"
+                          data-tai-khoan-id="{{ $t->id }}" data-ten="{{ $t->name }}"
+                          data-du-an-chon="{{ json_encode(array_values(array_unique(array_merge($t->du_an_cho_duyet ?? [], $t->duAn->modelKeys())))) }}"
+                          data-du-an-yeu-cau="{{ json_encode($t->du_an_cho_duyet ?? []) }}">Duyệt / chọn dự án</button>
+                @endif
                 @unless ($t->vai_tro === 'quan_tri')
                   <button type="button" class="btn sm" data-quyen
                           data-action="{{ route('tai-khoan.quyen-xem', $t) }}"
@@ -96,6 +103,33 @@
     </div>
   </div>
 </div>
+
+<dialog id="dlgDuyet">
+  <form method="post" id="formDuyet">
+    @csrf @method('patch')
+    <div class="sheet-hd">
+      <h2 style="font-size:14px">Duyệt chủ đầu tư — <span id="duyetTen"></span></h2>
+      <div class="hint" style="margin:3px 0 0">Chọn các dự án muốn gán. Yêu cầu đăng ký chỉ là gợi ý; có thể duyệt mà không gán dự án.</div>
+    </div>
+    <div class="sheet-bd">
+      <div id="dsDuAnDuyet" style="max-height:50vh;overflow:auto">
+        @forelse ($dsDuAnCoTheGan as $d)
+          <label class="du-an-duyet" data-chu-dau-tu-id="{{ $d->chu_dau_tu_id }}" style="display:flex;gap:8px;align-items:flex-start;padding:8px;border-bottom:1px solid var(--line)">
+            <input type="checkbox" name="du_an_ids[]" value="{{ $d->id }}">
+            <span>{{ $d->ten }}<small style="display:block;color:var(--ink-2)">{{ $d->ten_loai_hinh }}@if ($d->dia_diem) — Hiện nay: {{ $d->dia_diem }}@endif @if ($d->diaDiemTruocDayDanhSach()) — Trước đây: {{ implode(', ', $d->diaDiemTruocDayDanhSach()) }}@endif</small></span>
+          </label>
+        @empty
+          <p class="hint" style="margin:0">Hiện không có dự án chưa được gán.</p>
+        @endforelse
+      </div>
+      <p id="duyetCanhBao" class="hint" hidden style="margin:8px 0 0"></p>
+    </div>
+    <div class="sheet-ft">
+      <button type="button" class="btn" onclick="document.getElementById('dlgDuyet').close()">Huỷ</button>
+      <button class="btn primary">Duyệt và lưu lựa chọn</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="dlgSua">
   <form method="post" id="formSua">
@@ -201,6 +235,38 @@
 @push('cuoi_trang')
 <script>
 (function () {
+  var dlgDuyet = document.getElementById('dlgDuyet');
+  var formDuyet = document.getElementById('formDuyet');
+  var duAnDuyet = Array.prototype.slice.call(document.querySelectorAll('.du-an-duyet'));
+  var canhBaoDuyet = document.getElementById('duyetCanhBao');
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-duyet]'), function (btn) {
+    btn.addEventListener('click', function () {
+      var taiKhoanId = btn.dataset.taiKhoanId;
+      var duAnChon = JSON.parse(btn.dataset.duAnChon || '[]').map(String);
+      var duAnYeuCau = JSON.parse(btn.dataset.duAnYeuCau || '[]').map(String);
+      var duAnKhaDung = [];
+
+      formDuyet.action = btn.dataset.action;
+      document.getElementById('duyetTen').textContent = btn.dataset.ten;
+      duAnDuyet.forEach(function (hang) {
+        var chuDauTuId = hang.dataset.chuDauTuId;
+        var khaDung = !chuDauTuId || chuDauTuId === taiKhoanId;
+        var oChon = hang.querySelector('input');
+        hang.hidden = !khaDung;
+        hang.style.display = khaDung ? 'flex' : 'none';
+        oChon.checked = khaDung && duAnChon.indexOf(oChon.value) >= 0;
+        if (khaDung) duAnKhaDung.push(oChon.value);
+      });
+      var yeuCauKhongKhaDung = duAnYeuCau.some(function (id) { return duAnKhaDung.indexOf(id) < 0; });
+      canhBaoDuyet.hidden = !yeuCauKhongKhaDung;
+      canhBaoDuyet.textContent = yeuCauKhongKhaDung
+        ? 'Một số dự án được yêu cầu đã được gán cho người khác hoặc không còn khả dụng; hãy chọn lại nếu cần.'
+        : '';
+      dlgDuyet.showModal();
+    });
+  });
+
   var dlgSua = document.getElementById('dlgSua');
   var formSua = document.getElementById('formSua');
 

@@ -6,18 +6,22 @@
     'ten' => 'Tên dự án',
     'cong_suat_mw' => 'Công suất (MW)',
     'loai_hinh' => 'Loại hình',
-    'dia_diem' => 'Địa điểm',
+    'dia_diem_truoc_day' => 'Địa điểm trước đây',
+    'dia_diem' => 'Địa điểm hiện nay',
     'chu_dau_tu' => 'Chủ đầu tư',
-    'so_van_ban' => 'Chủ trương đầu tư',
+    'trang_thai' => 'Trạng thái',
     'von_dang_ky' => 'Vốn (tỷ)',
     'dien_tich' => 'Diện tích (ha)',
     'tien_do_van_hanh' => 'Hoàn thành',
-    'trang_thai' => 'Trạng thái',
+    'van_ban_phap_ly' => 'Văn bản pháp lý',
     'tien_do' => 'Tiến độ (%)',
   ];
 
   // Cac cot du lieu dang so — can le phai ca tieu de lan gia tri de thang hang voi nhau
   $cotSo = ['cong_suat_mw', 'von_dang_ky', 'dien_tich', 'tien_do'];
+
+  $hoSoPhapLy = App\Models\DuAn::HO_SO_PHAP_LY;
+  $thuTuHoSo = array_flip(array_keys($hoSoPhapLy));
 
   // Chi hien mo ta cong suat ben duoi con so khi no co thong tin gi do KHAC ngoai viec
   // lap lai chinh con so kem "MW" (VD "48 MW" thi khong hien, "10 MW (de nghi +5MW)" thi hien).
@@ -74,12 +78,40 @@
         @endforeach
       </select>
     </label>
-    <label>Địa điểm
+    <label>Xã/phường
       <select name="dia_diem">
         <option value="">Tất cả</option>
         @foreach ($diaDiem as $dd)
           <option value="{{ $dd }}" @selected(request('dia_diem') === $dd)>{{ $dd }}</option>
         @endforeach
+        @if ($diaDiemCu->isNotEmpty())
+          <optgroup label="Địa điểm cũ trong dữ liệu">
+            @foreach ($diaDiemCu as $ddCu)
+              <option value="{{ $ddCu }}" @selected(request('dia_diem') === $ddCu)>{{ $ddCu }}</option>
+            @endforeach
+          </optgroup>
+        @endif
+      </select>
+    </label>
+    <label>Địa điểm trước đây
+      <select name="dia_diem_truoc_day">
+        <option value="">Tất cả</option>
+        @foreach ($diaDiemTruocDay as $tinh => $dsHuyen)
+          <optgroup label="{{ $tinh }}">
+            @foreach ($dsHuyen as $huyen => $dsDiaDiem)
+              @foreach ($dsDiaDiem as $ddCu)
+                <option value="{{ $ddCu }}" @selected(request('dia_diem_truoc_day') === $ddCu)>{{ explode(' — ', $ddCu, 2)[0] }} ({{ $huyen }})</option>
+              @endforeach
+            @endforeach
+          </optgroup>
+        @endforeach
+        @if ($diaDiemTruocDayCu->isNotEmpty())
+          <optgroup label="Giá trị cũ chưa đối chiếu">
+            @foreach ($diaDiemTruocDayCu as $ddCu)
+              <option value="{{ $ddCu }}" @selected(request('dia_diem_truoc_day') === $ddCu)>{{ $ddCu }}</option>
+            @endforeach
+          </optgroup>
+        @endif
       </select>
     </label>
     @php
@@ -117,10 +149,14 @@
               $chieuMoi = $dangSap && $chieu === 'asc' ? 'giam' : 'tang';
             @endphp
             <th class="@if (in_array($ma, $cotSo, true)) num @endif">
-              <a href="{{ route('du-an.index', array_merge(request()->query(), ['sap_xep' => $ma, 'chieu' => $chieuMoi])) }}">
+              @if (in_array($ma, ['van_ban_phap_ly', 'dia_diem_truoc_day'], true))
                 <span>{{ $nhan }}</span>
-                <span class="fleche @if ($dangSap) dang-sap @endif">{{ $dangSap ? ($chieu === 'asc' ? '↑' : '↓') : '⇅' }}</span>
-              </a>
+              @else
+                <a href="{{ route('du-an.index', array_merge(request()->query(), ['sap_xep' => $ma, 'chieu' => $chieuMoi])) }}">
+                  <span>{{ $nhan }}</span>
+                  <span class="fleche @if ($dangSap) dang-sap @endif">{{ $dangSap ? ($chieu === 'asc' ? '↑' : '↓') : '⇅' }}</span>
+                </a>
+              @endif
             </th>
           @endforeach
           @if (auth()->user()->duocSua())
@@ -139,19 +175,59 @@
             @endif
           </td>
           <td><span class="tag"><i style="background:{{ $d->mau }}"></i>{{ $d->ten_loai_hinh }}</span></td>
+          <td>{{ implode(', ', $d->diaDiemTruocDayDanhSach()) }}</td>
           <td>{{ $d->dia_diem }}</td>
           <td>{{ $d->chu_dau_tu }}</td>
-          <td onclick="event.stopPropagation()">
-            @if ($d->vanBanChinh?->tep)
-              <a href="{{ $d->vanBanChinh->tep_url }}" target="_blank" rel="noopener">{{ $d->vanBanChinh->so_van_ban ?: 'Xem văn bản' }}</a>
-            @else
-              {{ $d->vanBanChinh->so_van_ban ?? '' }}
-            @endif
-          </td>
+          <td>{{ $d->trang_thai }}</td>
           <td class="num">{{ $soGon($d->von_dang_ky) }}</td>
           <td class="num">{{ $soGon($d->dien_tich) }}</td>
           <td>{{ $d->tien_do_van_hanh ?: $d->ngay_hoan_thanh?->format('d/m/Y') }}</td>
-          <td>{{ $d->trang_thai }}</td>
+          <td class="du-an-van-ban-cell" onclick="event.stopPropagation()">
+            @php
+              // Văn bản pháp lý và tệp hồ sơ kiểu cũ, nhóm theo hồ sơ đúng thứ tự 8 hồ sơ — hiện trong hộp "Xem"
+              $nhomVanBan = $d->vanBanPhapLy
+                ->map(fn ($vb) => ['ho_so' => $vb->ho_so, 'loai' => $vb->loai, 'so' => $vb->so_van_ban ?: ($vb->ten_tep ?: 'Văn bản chưa có số'),
+                  'ngay' => $vb->ngay_van_ban, 'url' => $vb->tep_url])
+                ->concat($d->hoSoTep->map(fn ($tep) => ['ho_so' => $tep->loai, 'loai' => null, 'so' => $tep->so_van_ban ?: $tep->ten_tep,
+                  'ngay' => $tep->ngay_van_ban, 'url' => route('ho-so-tep.show', $tep)]))
+                ->groupBy('ho_so')
+                ->sortBy(fn ($ds, $hoSo) => $thuTuHoSo[$hoSo] ?? 99);
+            @endphp
+            @if ($nhomVanBan->isEmpty())
+              <span class="du-an-van-ban-empty">Chưa có văn bản</span>
+            @else
+              <button type="button" class="btn sm du-an-van-ban-xem" data-xem-van-ban="{{ $d->id }}" data-ten="{{ $d->ten }}" data-url="{{ route('du-an.show', $d) }}">
+                Xem<span>{{ $nhomVanBan->flatten(1)->count() }}</span>
+              </button>
+              <template id="vanBan{{ $d->id }}">
+                @foreach ($nhomVanBan as $hoSo => $dsVanBan)
+                  <section class="hop-van-ban-nhom">
+                    <h3>{{ $hoSoPhapLy[$hoSo] ?? $hoSo }}<span>{{ $dsVanBan->count() }}</span></h3>
+                    <ul>
+                      @foreach ($dsVanBan as $vb)
+                        <li>
+                          <div class="hop-van-ban-so">
+                            @if ($vb['url'])
+                              <a href="{{ $vb['url'] }}" target="_blank" rel="noopener">{{ $vb['so'] }}</a>
+                            @else
+                              {{ $vb['so'] }}
+                            @endif
+                            @if ($vb['loai'])<small>{{ $vb['loai'] }}</small>@endif
+                          </div>
+                          <span class="hop-van-ban-ngay">{{ $vb['ngay']?->format('d/m/Y') }}</span>
+                          @if ($vb['url'])
+                            <a href="{{ $vb['url'] }}" target="_blank" rel="noopener" class="btn sm">Mở tệp</a>
+                          @else
+                            <span class="hop-van-ban-chua-tep">Chưa có tệp</span>
+                          @endif
+                        </li>
+                      @endforeach
+                    </ul>
+                  </section>
+                @endforeach
+              </template>
+            @endif
+          </td>
           <td class="num">{{ $d->tien_do !== null ? \App\Models\BaoCaoTuanDuAn::so($d->tien_do, 2) : '' }}</td>
           @if (auth()->user()->duocSua())
             <td style="white-space:nowrap">
@@ -191,5 +267,40 @@
   </div>
 
   <div style="margin-top:12px">{{ $duAn->links('vendor.pagination.don-gian') }}</div>
+
+  <dialog id="hopVanBan" class="hop-van-ban" aria-labelledby="hopVanBanTen">
+    <div class="sheet-hd hop-van-ban-dau">
+      <div><small>Văn bản pháp lý</small><h2 id="hopVanBanTen"></h2></div>
+      <button type="button" class="hop-van-ban-x" data-dong aria-label="Đóng">×</button>
+    </div>
+    <div class="sheet-bd hop-van-ban-than"></div>
+    <div class="sheet-ft">
+      <a href="#" class="btn" data-mo-du-an>Mở trang dự án</a>
+      <button type="button" class="btn primary" data-dong>Đóng</button>
+    </div>
+  </dialog>
 </div>
 @endsection
+
+@push('cuoi_trang')
+<script>
+// Nút "Xem" văn bản pháp lý: mở hộp liệt kê văn bản của dự án (nội dung lấy từ <template> của dòng đó)
+(function () {
+  var hop = document.getElementById('hopVanBan');
+  var than = hop.querySelector('.hop-van-ban-than'), ten = document.getElementById('hopVanBanTen'), moDuAn = hop.querySelector('[data-mo-du-an]');
+  document.querySelectorAll('[data-xem-van-ban]').forEach(function (nut) {
+    nut.addEventListener('click', function () {
+      than.replaceChildren(document.getElementById('vanBan' + nut.dataset.xemVanBan).content.cloneNode(true));
+      ten.textContent = nut.dataset.ten;
+      moDuAn.href = nut.dataset.url;
+      hop.showModal();
+      than.scrollTop = 0;
+    });
+  });
+  // Bấm ra nền tối bên ngoài hoặc nút Đóng thì đóng hộp
+  hop.addEventListener('click', function (e) {
+    if (e.target === hop || e.target.closest('[data-dong]')) hop.close();
+  });
+})();
+</script>
+@endpush

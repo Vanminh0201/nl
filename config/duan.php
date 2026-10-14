@@ -78,45 +78,13 @@ return [
         'tuan_bat_dau' => env('DUAN_BAO_CAO_TUAN_BAT_DAU', '2026-W40'),
     ],
 
-    /* Báo cáo tháng theo mẫu bảng "Tình hình triển khai quy hoạch điện VIII điều chỉnh, quy hoạch tỉnh điều chỉnh" */
+    /* Báo cáo tháng theo mẫu "Tình hình triển khai các dự án năng lượng trên địa bàn tỉnh" (nhóm theo xã) */
     'bao_cao_thang' => [
         // Tháng đầu tiên bắt buộc báo cáo — các tháng trước không tính là "không nộp"
         'thang_bat_dau' => env('DUAN_BAO_CAO_THANG_BAT_DAU', '2026-09'),
         // Hạn nộp mặc định (ngày trong tháng) khi quản trị chưa chỉnh ở trang Cài đặt báo cáo
         'han_nop' => 20,
         'so_thang_theo_doi' => 6,
-        'tieu_de' => 'TÌNH HÌNH TRIỂN KHAI QUY HOẠCH ĐIỆN VIII ĐIỀU CHỈNH, QUY HOẠCH TỈNH ĐIỀU CHỈNH',
-
-        // Mỗi loại hình 1 sheet như file mẫu. Cột của mẫu: phuong_an = "Phương án xử lý";
-        // thuc_te = "Tiến độ dự kiến đưa vào vận hành thực tế" (chỉ sheet Nhiệt điện có). Loại hình
-        // không liệt kê ở đây vẫn có sheet riêng (tên sheet = tên loại hình), dùng cột mặc định.
-        'sheet' => [
-            'dien_gio' => ['ten' => 'ĐIỆN GIÓ', 'tieu_de' => 'CÁC DỰ ÁN ĐIỆN GIÓ', 'phuong_an' => true,
-                'rong' => [5.3, 14.4, 14.6, 8.1, 17.9, 22.1, 19.1, 60, 23.6, 27.6]],
-            'thuy_dien' => ['ten' => 'THỦY ĐIỆN', 'tieu_de' => 'THỦY ĐIỆN', 'phuong_an' => true,
-                'rong' => [7, 17, 15, 13, 13, 19, 17, 40, 22, 16]],
-            'nhiet_dien' => ['ten' => 'NHIỆT ĐIỆN', 'tieu_de' => 'NHIỆT ĐIỆN', 'phuong_an' => true, 'thuc_te' => true,
-                'rong' => [6, 16, 13, 10, 14, 20, 16, 17, 60, 15, 12]],
-            'dien_mat_troi' => ['ten' => 'ĐIỆN MẶT TRỜI', 'tieu_de' => 'ĐIỆN MẶT TRỜI', 'phuong_an' => false,
-                'rong' => [8, 18, 16, 13, 13, 23, 12, 40, 15]],
-            'dien_rac' => ['ten' => 'ĐIỆN RÁC', 'tieu_de' => 'ĐIỆN RÁC', 'phuong_an' => false,
-                'rong' => [8, 23, 14, 14, 14, 22, 14, 40, 20]],
-        ],
-
-        // Nhóm dự án trong bảng tổng hợp (I, II…) — mặc định suy ra theo trạng thái dự án, Sở đổi được
-        'nhom' => [
-            'cham_tien_do' => 'CÁC DỰ ÁN TRIỂN KHAI CHẬM TIẾN ĐỘ',
-            'dang_thi_cong' => 'CÁC DỰ ÁN ĐANG TRIỂN KHAI THI CÔNG',
-            'chuan_bi' => 'CÁC DỰ ÁN ĐÃ CHẤP THUẬN NHÀ ĐẦU TƯ, TRIỂN KHAI CÁC THỦ TỤC ĐẦU TƯ, CHUẨN BỊ TRIỂN KHAI THI CÔNG',
-            'da_van_hanh' => 'CÁC DỰ ÁN ĐÃ ĐI VÀO VẬN HÀNH',
-            'tam_dung' => 'CÁC DỰ ÁN TẠM DỪNG, ĐỀ NGHỊ CHẤM DỨT',
-        ],
-        'nhom_theo_trang_thai' => [
-            'Chậm tiến độ' => 'cham_tien_do',
-            'Đang thi công' => 'dang_thi_cong',
-            'Đã đi vào hoạt động' => 'da_van_hanh',
-            'Tạm dừng, thu hồi' => 'tam_dung',
-        ],
     ],
 
     /* Số đối tượng hạ tầng tối đa trả về cho một khung nhìn */

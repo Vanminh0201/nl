@@ -2,63 +2,157 @@
 @section('tieu_de', 'Lớp hạ tầng lưới điện')
 
 @section('noi_dung')
-<div class="pad">
+<div class="pad ha-tang-page">
+  <div class="ha-tang-heading">
+    <div>
+      <span class="ha-tang-eyebrow">DỮ LIỆU BẢN ĐỒ</span>
+      <h1>Lớp hạ tầng</h1>
+      <p>Quản lý các lớp dữ liệu hạ tầng đang hiển thị trên bản đồ.</p>
+    </div>
+    @if (auth()->user()->duocSua())
+      <button type="button" class="btn primary" onclick="document.getElementById('dlgThem').showModal()">+ Nạp lớp mới</button>
+    @endif
+  </div>
+
+  <section class="ha-tang-overview" aria-label="Tổng quan lớp hạ tầng">
+    <article class="ha-tang-stat">
+      <span>Tổng số lớp</span>
+      <strong>{{ number_format($lop->count(), 0, ',', '.') }}</strong>
+    </article>
+    <article class="ha-tang-stat">
+      <span>Đang hiển thị</span>
+      <strong>{{ number_format($soLopDangBat, 0, ',', '.') }} <small>/ {{ number_format($lop->count(), 0, ',', '.') }}</small></strong>
+    </article>
+    <article class="ha-tang-stat">
+      <span>Tổng đối tượng</span>
+      <strong>{{ number_format($tongDoiTuong, 0, ',', '.') }}</strong>
+    </article>
+    <article class="ha-tang-stat">
+      <span>Trạm biến áp</span>
+      <strong>{{ number_format($tongTram, 0, ',', '.') }}</strong>
+    </article>
+  </section>
+
   <div class="sheet">
-    <div class="sheet-hd" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-      <h2>Lớp hạ tầng đã nạp</h2>
-      @if (auth()->user()->duocSua())
-        <button type="button" class="btn primary sm" onclick="document.getElementById('dlgThem').showModal()">+ Nạp lớp mới</button>
-      @endif
+    <div class="sheet-hd ha-tang-list-heading">
+      <div>
+        <h2>Các lớp dữ liệu</h2>
+        <p>Cây dữ liệu phân theo hiện trạng, quy hoạch và nhóm file đã nạp.</p>
+      </div>
+      <div class="ha-tang-tree-controls" aria-label="Điều khiển cây lớp">
+        <button type="button" class="btn sm" id="haTangMoTatCa">Mở tất cả</button>
+        <button type="button" class="btn sm" id="haTangThuGonTatCa">Thu gọn</button>
+      </div>
     </div>
     <div class="sheet-bd" style="padding:0">
       @if ($errors->suaLop->any())
         <div class="loi" style="margin:12px 12px 0">{{ $errors->suaLop->first() }}</div>
       @endif
+      <div class="ha-tang-toolbar" role="search" aria-label="Lọc lớp hạ tầng">
+        <label class="ha-tang-search">
+          <span class="sr-only">Tìm lớp hạ tầng</span>
+          <input type="search" id="haTangTim" placeholder="Tìm theo tên lớp, nguồn hoặc tên file" autocomplete="off">
+        </label>
+        <label>
+          <span class="sr-only">Lọc theo dạng hình học</span>
+          <select id="haTangLoai">
+            <option value="">Tất cả dạng lớp</option>
+            <option value="diem">Điểm</option>
+            <option value="duong">Đường</option>
+            <option value="vung">Vùng</option>
+          </select>
+        </label>
+        <label>
+          <span class="sr-only">Lọc theo trạng thái hiển thị</span>
+          <select id="haTangTrangThai">
+            <option value="">Mọi trạng thái</option>
+            <option value="1">Đang hiển thị</option>
+            <option value="0">Đã tắt</option>
+          </select>
+        </label>
+        <button type="button" class="btn sm" id="haTangBoLoc">Xoá lọc</button>
+        <span class="ha-tang-result" id="haTangKetQua" aria-live="polite"></span>
+      </div>
       @php
-        // Gộp các lớp cùng 1 lần nạp (cột nhom) thành 1 dòng cha, mở/thu gọn khi bấm.
-        // Lớp nạp từ trước khi có cột nhom vẫn nhận ra nhau qua hậu tố "— điểm/đường/vùng".
-        $nhomLop = $lop->groupBy(function ($l) {
+        $nhomTheoTinhTrang = [
+            'hien-trang' => [
+                'ten' => 'Hiện trạng',
+                'lop' => $lop->filter(fn ($l) => ! $l->quy_hoach),
+            ],
+            'quy-hoach' => [
+                'ten' => 'Quy hoạch',
+                'lop' => $lop->filter(fn ($l) => (bool) $l->quy_hoach),
+            ],
+        ];
+        $khoaNhom = function ($l) {
             if ($l->nhom) {
                 return $l->nhom;
             }
             $goc = preg_replace('/ — (điểm|đường|vùng)$/u', '', $l->ten);
 
             return $goc !== $l->ten ? $goc : 'rieng-'.$l->id;
-        });
+        };
       @endphp
-      <div class="tablewrap">
-        <table>
-          <thead>
-            <tr><th>Tên lớp</th><th>Nguồn</th><th class="num">Đối tượng</th><th class="num">Trạm</th><th>Trạng thái</th><th></th></tr>
-          </thead>
-          <tbody>
-          @forelse ($nhomLop as $tenNhom => $dsCon)
-            @if ($dsCon->count() > 1)
-              @php
-                $maNhom = 'nhom-'.$dsCon->first()->id;
-                $soDangBat = $dsCon->where('hien_thi', true)->count();
-              @endphp
-              <tr class="hang-nhom" data-mo-nhom="{{ $maNhom }}" style="cursor:pointer;background:#f4f6f4">
-                <td><span class="mui-nhom">▸</span> <b>{{ $tenNhom }}</b> <span class="hint">({{ $dsCon->count() }} lớp con)</span></td>
-                <td>{{ $dsCon->first()->nguon }}</td>
-                <td class="num">{{ number_format($dsCon->sum('doi_tuong_count'), 0, ',', '.') }}</td>
-                <td class="num">{{ number_format($dsCon->sum('so_tram'), 0, ',', '.') }}</td>
-                <td>{{ $soDangBat }}/{{ $dsCon->count() }} đang bật</td>
-                <td></td>
-              </tr>
-              @foreach ($dsCon as $l)
-                @include('lop-ha-tang._hang', ['l' => $l, 'conCua' => $maNhom])
-              @endforeach
-            @else
-              @include('lop-ha-tang._hang', ['l' => $dsCon->first()])
-            @endif
-          @empty
-            <tr><td colspan="6" style="padding:26px;color:var(--ink-2)">
-              Chưa nạp lớp nào. Bấm "Nạp lớp mới" để bắt đầu.
-            </td></tr>
-          @endforelse
-          </tbody>
-        </table>
+      <div class="ha-tang-tree" id="haTangTree" aria-label="Cây lớp hạ tầng">
+        @foreach ($nhomTheoTinhTrang as $maTinhTrang => $nhanh)
+          @php
+            $lopTheoNhom = $nhanh['lop']->groupBy($khoaNhom);
+            $soLopBat = $nhanh['lop']->where('hien_thi', true)->count();
+          @endphp
+          <section class="ha-tang-branch ha-tang-branch-{{ $maTinhTrang }}" data-ha-tang-branch
+                   data-nhanh="{{ $maTinhTrang }}" data-expanded="1"
+                   data-branch-tim="{{ \Illuminate\Support\Str::lower($nhanh['ten']) }}">
+            <button type="button" class="ha-tang-branch-toggle" aria-expanded="true" aria-controls="ha-tang-branch-{{ $maTinhTrang }}" aria-label="Thu gọn {{ $nhanh['ten'] }}">
+              <span class="ha-tang-chevron" aria-hidden="true">▾</span>
+              <span class="ha-tang-branch-title">
+                <strong>{{ $nhanh['ten'] }}</strong>
+              </span>
+              <span class="ha-tang-branch-summary">
+                <span>{{ number_format($nhanh['lop']->count(), 0, ',', '.') }} lớp</span>
+                <span>{{ number_format($soLopBat, 0, ',', '.') }} đang hiển thị</span>
+                <span>{{ number_format($nhanh['lop']->sum('doi_tuong_count'), 0, ',', '.') }} đối tượng</span>
+              </span>
+            </button>
+            <div class="ha-tang-branch-content" id="ha-tang-branch-{{ $maTinhTrang }}">
+              @if ($nhanh['lop']->isEmpty())
+                <p class="ha-tang-empty-branch">
+                  {{ $nhanh['ten'] === 'Quy hoạch' ? 'Chưa có lớp quy hoạch.' : 'Chưa có lớp hiện trạng.' }}
+                </p>
+              @else
+                @foreach ($lopTheoNhom as $tenNhom => $dsCon)
+                  @if ($dsCon->count() > 1)
+                    @php $maNhom = $maTinhTrang.'-'.$dsCon->first()->id; @endphp
+                    <section class="ha-tang-group" data-ha-tang-group data-branch="{{ $maTinhTrang }}"
+                             data-nhom="{{ $maNhom }}" data-expanded="0"
+                             data-nhom-tim="{{ \Illuminate\Support\Str::lower($tenNhom.' '.$dsCon->first()->nguon.' '.$dsCon->first()->ten_file) }}">
+                      <button type="button" class="ha-tang-group-toggle" aria-expanded="false" aria-controls="ha-tang-group-{{ $maNhom }}" aria-label="Mở nhóm {{ $tenNhom }}">
+                        <span class="ha-tang-chevron" aria-hidden="true">▸</span>
+                        <span class="ha-tang-group-title">
+                          <strong>{{ $tenNhom }}</strong>
+                          <small>{{ $dsCon->first()->nguon ?: 'Nguồn chưa ghi' }}</small>
+                        </span>
+                        <span class="ha-tang-group-summary">
+                          <span>{{ $dsCon->count() }} lớp</span>
+                          <span>{{ $dsCon->where('hien_thi', true)->count() }} đang hiển thị</span>
+                        </span>
+                      </button>
+                      <div class="ha-tang-group-content" id="ha-tang-group-{{ $maNhom }}">
+                        @foreach ($dsCon as $l)
+                          @include('lop-ha-tang._hang', ['l' => $l, 'maTinhTrang' => $maTinhTrang, 'conCua' => $maNhom])
+                        @endforeach
+                      </div>
+                    </section>
+                  @else
+                    @include('lop-ha-tang._hang', ['l' => $dsCon->first(), 'maTinhTrang' => $maTinhTrang, 'conCua' => null])
+                  @endif
+                @endforeach
+              @endif
+            </div>
+          </section>
+        @endforeach
+        @if ($lop->isNotEmpty())
+          <div class="ha-tang-no-results" hidden>Không tìm thấy lớp nào khớp với bộ lọc.</div>
+        @endif
       </div>
     </div>
   </div>
@@ -154,19 +248,151 @@
     </form>
   </dialog>
 
-  @push('cuoi_trang')
-  <script>
-  (function () {
-    Array.prototype.forEach.call(document.querySelectorAll('[data-mo-nhom]'), function (hang) {
-      hang.addEventListener('click', function () {
-        var ma = hang.dataset.moNhom;
-        var con = document.querySelectorAll('[data-thuoc-nhom="' + ma + '"]');
-        var dangAn = con.length && con[0].hidden;
-        Array.prototype.forEach.call(con, function (c) { c.hidden = ! dangAn; });
-        hang.querySelector('.mui-nhom').textContent = dangAn ? '▾' : '▸';
+@endif
+
+@push('cuoi_trang')
+<script>
+(function () {
+  var tim = document.getElementById('haTangTim');
+  var loai = document.getElementById('haTangLoai');
+  var trangThai = document.getElementById('haTangTrangThai');
+  var ketQua = document.getElementById('haTangKetQua');
+  var dongTrong = document.querySelector('.ha-tang-no-results');
+  var lopLe = Array.prototype.slice.call(document.querySelectorAll('[data-lop-ha-tang]'));
+  var nhanh = Array.prototype.slice.call(document.querySelectorAll('[data-ha-tang-branch]'));
+  var nhom = Array.prototype.slice.call(document.querySelectorAll('[data-ha-tang-group]'));
+  var chuanHoa = function (giaTri) { return (giaTri || '').toLocaleLowerCase('vi').trim(); };
+  var coBoLoc = function () { return !!(chuanHoa(tim.value) || loai.value || trangThai.value); };
+
+  function khopBoLoc(dong, tenNhomKhop, tenNhanhKhop) {
+    var tuKhoa = chuanHoa(tim.value);
+    var khopTen = !tuKhoa || tenNhomKhop || tenNhanhKhop
+      || chuanHoa(dong.dataset.tim).indexOf(tuKhoa) !== -1;
+    var khopLoai = !loai.value || dong.dataset.loai === loai.value;
+    var khopTrangThai = !trangThai.value || dong.dataset.hienThi === trangThai.value;
+
+    return khopTen && khopLoai && khopTrangThai;
+  }
+
+  function apDungBoLoc() {
+    var soHienThi = 0;
+    var dangLoc = coBoLoc();
+
+    nhanh.forEach(function (dongNhanh) {
+      var maNhanh = dongNhanh.dataset.nhanh;
+      var cacDongNhanh = lopLe.filter(function (dong) { return dong.dataset.branch === maNhanh; });
+      var cacNhom = nhom.filter(function (dong) { return dong.dataset.branch === maNhanh; });
+      var tenNhanhKhop = chuanHoa(dongNhanh.dataset.branchTim).indexOf(chuanHoa(tim.value)) !== -1;
+      var soKhopTrongNhanh = 0;
+      cacNhom.forEach(function (dongNhom) {
+        var maNhom = dongNhom.dataset.nhom;
+        var cacDongCon = cacDongNhanh.filter(function (dong) { return dong.dataset.thuocNhom === maNhom; });
+        var tenNhomKhop = chuanHoa(dongNhom.dataset.nhomTim).indexOf(chuanHoa(tim.value)) !== -1;
+        var cacDongKhop = cacDongCon.filter(function (dong) {
+          return khopBoLoc(dong, tenNhomKhop || tenNhanhKhop, tenNhanhKhop);
+        });
+        dongNhom.hidden = dangLoc && cacDongKhop.length === 0;
+        dongNhom.dataset.filterOpen = dangLoc && cacDongKhop.length ? '1' : '0';
+        cacDongCon.forEach(function (dong) {
+          var khop = khopBoLoc(dong, tenNhomKhop || tenNhanhKhop, tenNhanhKhop);
+          dong.hidden = !khop;
+        });
+        soKhopTrongNhanh += cacDongKhop.length;
       });
+
+      var cacDongLe = cacDongNhanh.filter(function (dong) { return !dong.dataset.thuocNhom; });
+      cacDongLe.forEach(function (dong) {
+        var hien = khopBoLoc(dong, false, tenNhanhKhop);
+        dong.hidden = !hien;
+        soKhopTrongNhanh += hien ? 1 : 0;
+      });
+
+      dongNhanh.hidden = dangLoc && soKhopTrongNhanh === 0;
+      dongNhanh.dataset.filterOpen = dangLoc && soKhopTrongNhanh ? '1' : '0';
+      soHienThi += soKhopTrongNhanh;
     });
 
+    if (ketQua) {
+      ketQua.textContent = (dangLoc ? 'Phù hợp ' : 'Tổng cộng ') + soHienThi + '/' + lopLe.length + ' lớp';
+    }
+    if (dongTrong) {
+      dongTrong.hidden = !dangLoc || soHienThi !== 0;
+    }
+  }
+
+  nhanh.forEach(function (dongNhanh) {
+    var nutMo = dongNhanh.querySelector('.ha-tang-branch-toggle');
+    nutMo.addEventListener('click', function () {
+      var dangMo = dongNhanh.dataset.expanded !== '1';
+      dongNhanh.dataset.expanded = dangMo ? '1' : '0';
+      nutMo.setAttribute('aria-expanded', dangMo ? 'true' : 'false');
+      nutMo.setAttribute('aria-label', (dangMo ? 'Thu gọn ' : 'Mở ') + dongNhanh.querySelector('.ha-tang-branch-title strong').textContent);
+      nutMo.querySelector('.ha-tang-chevron').textContent = dangMo ? '▾' : '▸';
+      if (coBoLoc()) {
+        dongNhanh.dataset.filterOpen = dangMo ? '1' : '0';
+      } else {
+        apDungBoLoc();
+      }
+    });
+  });
+
+  nhom.forEach(function (dongNhom) {
+    var nutMo = dongNhom.querySelector('.ha-tang-group-toggle');
+    nutMo.addEventListener('click', function () {
+      var dangMo = dongNhom.dataset.expanded !== '1';
+      dongNhom.dataset.expanded = dangMo ? '1' : '0';
+      nutMo.setAttribute('aria-expanded', dangMo ? 'true' : 'false');
+      nutMo.setAttribute('aria-label', (dangMo ? 'Thu gọn nhóm ' : 'Mở nhóm ') + dongNhom.querySelector('.ha-tang-group-title strong').textContent);
+      nutMo.querySelector('.ha-tang-chevron').textContent = dangMo ? '▾' : '▸';
+      if (coBoLoc()) {
+        dongNhom.dataset.filterOpen = dangMo ? '1' : '0';
+      } else {
+        apDungBoLoc();
+      }
+    });
+  });
+
+  tim.addEventListener('input', apDungBoLoc);
+  loai.addEventListener('change', apDungBoLoc);
+  trangThai.addEventListener('change', apDungBoLoc);
+  document.getElementById('haTangBoLoc').addEventListener('click', function () {
+    tim.value = '';
+    loai.value = '';
+    trangThai.value = '';
+    apDungBoLoc();
+    tim.focus();
+  });
+  document.getElementById('haTangMoTatCa').addEventListener('click', function () {
+    nhanh.concat(nhom).forEach(function (dong) {
+      dong.dataset.expanded = '1';
+      var nutMo = dong.querySelector('button');
+      nutMo.setAttribute('aria-expanded', 'true');
+      nutMo.querySelector('.ha-tang-chevron').textContent = '▾';
+      if (coBoLoc()) {
+        dong.dataset.filterOpen = '1';
+      }
+    });
+    if (!coBoLoc()) {
+      apDungBoLoc();
+    }
+  });
+  document.getElementById('haTangThuGonTatCa').addEventListener('click', function () {
+    nhanh.concat(nhom).forEach(function (dong) {
+      dong.dataset.expanded = '0';
+      var nutMo = dong.querySelector('button');
+      nutMo.setAttribute('aria-expanded', 'false');
+      nutMo.querySelector('.ha-tang-chevron').textContent = '▸';
+      if (coBoLoc()) {
+        dong.dataset.filterOpen = '0';
+      }
+    });
+    if (!coBoLoc()) {
+      apDungBoLoc();
+    }
+  });
+  apDungBoLoc();
+
+  @if (auth()->user()->duocSua())
     var dlgSua = document.getElementById('dlgSua');
     var suaMau = document.getElementById('suaMau');
     var suaDungMau = document.getElementById('suaDungMau');
@@ -200,8 +426,8 @@
     @if ($errors->any())
       document.getElementById('dlgThem').showModal();
     @endif
-  })();
-  </script>
-  @endpush
-@endif
+  @endif
+})();
+</script>
+@endpush
 @endsection

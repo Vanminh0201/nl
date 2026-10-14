@@ -12,7 +12,7 @@
   <div class="sheet bct-dau">
     <div class="sheet-bd bct-dau-than">
       <div class="bct-dau-ten">
-        <div class="hint" style="margin:0">{{ config('duan.bao_cao_thang.tieu_de') }}</div>
+        <div class="hint" style="margin:0">{{ \App\Services\XuatExcelBaoCaoThang::TIEU_DE }}</div>
         <h1>Báo cáo {{ mb_strtolower($ky->ten()) }} — {{ $baoCao->ten_don_vi_hien_thi }}</h1>
         <div class="bct-dau-meta">
           <span class="chip {{ $baoCao->lop_chip }}">{{ $baoCao->ten_trang_thai }}</span>
@@ -59,10 +59,10 @@
   <div class="sheet">
     <div class="sheet-bd">
       <div class="bct-in-tieu-de">
-        <div><b>{{ config('duan.bao_cao_thang.tieu_de') }}</b></div>
+        <div><b>{{ \App\Services\XuatExcelBaoCaoThang::TIEU_DE }}</b></div>
         <div><i>({{ $ky->ten() }} — Đơn vị báo cáo: {{ $baoCao->ten_don_vi_hien_thi }})</i></div>
       </div>
-      @include('bao-cao.thang._bang', ['cauTruc' => $cauTruc])
+      @include('bao-cao.thang._bang', ['bang' => $bang, 'ky' => $ky])
     </div>
   </div>
 </div>
